@@ -725,37 +725,39 @@ function renderBestTableHtml(personName, exerciseName) {
     ? anchorRows.reduce((s, r) => s + epley(r.best.weight, r.reps), 0) / anchorRows.length
     : null;
 
-  const estCell = (reps, best) => {
-    if (reps === 1) {
-      return avgEst != null
-        ? `<strong>${fmtKg(avgEst)}</strong>`
-        : `<span class="muted">—</span>`;
-    }
-    if (reps >= 2 && reps <= 4 && best) {
-      return fmtKg(epley(best.weight, reps));
-    }
-    return `<span class="muted">—</span>`;
-  };
+  // Current 1RM reference: the actual best single (row 1's best weight).
+  const ref1RM = rows[0] && rows[0].best ? rows[0].best.weight : null;
+
+  const pctCell = best => (best && ref1RM > 0)
+    ? `${Math.round(best.weight / ref1RM * 100)}%`
+    : `<span class="muted">—</span>`;
+
+  // Reverse Epley: max weight predicted at N reps from the actual 1RM.
+  const revCell = reps => (reps > 1 && ref1RM > 0)
+    ? fmtKg(ref1RM / (1 + reps / 30))
+    : `<span class="muted">—</span>`;
+
+  const headline = avgEst != null
+    ? `<div class="est-1rm-headline">Est. 1RM: <strong>${fmtKg(avgEst)}</strong><span class="est-1rm-note">Epley, based on your best sets at 2–4 reps</span></div>`
+    : "";
 
   const tbody = rows.map(({ reps, best }) => {
-    if (!best && reps !== 1) {
-      return `<tr><td>${reps}</td><td class="muted">—</td><td class="muted">—</td><td>${estCell(reps, best)}</td></tr>`;
-    }
     if (!best) {
-      // reps === 1 with no data — still show estimate if anchor rows have data
-      return `<tr><td>${reps}</td><td class="muted">—</td><td class="muted">—</td><td class="best-est">${estCell(reps, best)}</td></tr>`;
+      return `<tr><td>${reps}</td><td class="muted">—</td><td class="muted">—</td><td class="best-pct"><span class="muted">—</span></td><td class="best-est">${revCell(reps)}</td></tr>`;
     }
     return `<tr>
       <td>${reps}</td>
       <td><strong>${best.weight} kg</strong></td>
       <td class="best-date">${formatDate(best.date)}</td>
-      <td class="best-est">${estCell(reps, best)}</td>
+      <td class="best-pct">${pctCell(best)}</td>
+      <td class="best-est">${revCell(reps)}</td>
     </tr>`;
   }).join("");
   return `
+    ${headline}
     <table class="best-table">
       <thead>
-        <tr><th>Reps</th><th>Best weight</th><th>Date</th><th title="Estimated 1RM using the Epley formula. Rows 2–4 show per-row estimate; row 1 is the average of rows 2, 3 and 4.">Est. 1RM</th></tr>
+        <tr><th>Reps</th><th>Best weight</th><th>Date</th><th title="Best weight as a percentage of your actual best single (row 1).">% of 1RM</th><th title="Max weight predicted at this rep count, worked back from your actual 1RM (row 1) using the Epley formula.">Est. max</th></tr>
       </thead>
       <tbody>${tbody}</tbody>
     </table>
@@ -846,7 +848,6 @@ function renderBestLookup() {
 function renderPRHelper() {
   const root = document.getElementById("pr-helper");
   root.innerHTML = "";
-  if (getCurrentSession() || getViewingSession()) return; // home view only
 
   const collapsed = !!state.uiCollapsed.prHelper;
   if (collapsed) {
