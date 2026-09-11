@@ -745,9 +745,11 @@ function renderBestTableHtml(personName, exerciseName) {
     if (!best) {
       return `<tr><td>${reps}</td><td class="muted">—</td><td class="muted">—</td><td class="best-pct"><span class="muted">—</span></td><td class="best-est">${revCell(reps)}</td></tr>`;
     }
+    const revVal = (reps > 1 && ref1RM > 0) ? ref1RM / (1 + reps / 30) : null;
+    const beats = revVal != null && best.weight > revVal + 1e-9;
     return `<tr>
       <td>${reps}</td>
-      <td><strong>${best.weight} kg</strong></td>
+      <td><strong${beats ? ' class="beats-est" title="Beats the Epley prediction at this rep count"' : ""}>${best.weight} kg</strong></td>
       <td class="best-date">${formatDate(best.date)}</td>
       <td class="best-pct">${pctCell(best)}</td>
       <td class="best-est">${revCell(reps)}</td>

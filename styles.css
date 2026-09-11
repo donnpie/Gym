@@ -7,6 +7,7 @@
   --muted: #8a93a6;
   --accent: #4f8cff;
   --danger: #e5484d;
+  --success: #46a758;
 }
 * { box-sizing: border-box; }
 body {
@@ -662,6 +663,9 @@ button.icon {
 .best-table strong {
   color: var(--accent);
   font-weight: 600;
+}
+.best-table strong.beats-est {
+  color: var(--success);
 }
 .best-table .best-est {
   color: var(--muted);
