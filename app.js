@@ -1,6 +1,7 @@
 const STORAGE_KEY = "gym-tracker-sessions";
 const UI_STATE_KEY = "gym-tracker-ui";
 const INVENTORY_KEY = "gym-tracker-inventory";
+const TARGETS_KEY = "gym-tracker-targets";
 
 const DEFAULT_INVENTORY = {
   bars: [
@@ -33,13 +34,51 @@ const state = {
   openPRCalcId: null,
   helperWeight: null,
   bestLookup: { personName: "", exerciseName: "" },
+  targets: [],
+  editingTargetKey: null,
   plateInventory: JSON.parse(JSON.stringify(DEFAULT_INVENTORY)),
-  uiCollapsed: { prHelper: false, plateEditor: true },
+  uiCollapsed: { prHelper: false, plateEditor: true, targetsOverview: false },
   setup: { date: todayISO(), count: null, names: [] },
 };
 
+function loadTargets() {
+  try {
+    const raw = localStorage.getItem(TARGETS_KEY);
+    if (raw) {
+      const t = JSON.parse(raw);
+      if (Array.isArray(t)) state.targets = t;
+    }
+  } catch {}
+}
+
+function saveTargets() {
+  localStorage.setItem(TARGETS_KEY, JSON.stringify(state.targets));
+}
+
+function targetMatches(t, person, exercise) {
+  return (t.person || "").trim().toLowerCase() === (person || "").trim().toLowerCase()
+    && (t.exercise || "").trim().toLowerCase() === (exercise || "").trim().toLowerCase();
+}
+
+function getTarget(person, exercise) {
+  if (!(person || "").trim() || !(exercise || "").trim()) return null;
+  return state.targets.find(t => targetMatches(t, person, exercise)) || null;
+}
+
+function setTarget(person, exercise, weight, reps) {
+  state.targets = state.targets.filter(t => !targetMatches(t, person, exercise));
+  state.targets.push({ person: person.trim(), exercise: exercise.trim(), weight, reps, setAt: todayISO() });
+  saveTargets();
+}
+
+function clearTarget(person, exercise) {
+  state.targets = state.targets.filter(t => !targetMatches(t, person, exercise));
+  saveTargets();
+}
+
 function load() {
   loadInventory();
+  loadTargets();
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     state.sessions = raw ? JSON.parse(raw) : [];
@@ -482,6 +521,7 @@ function render() {
   renderStart();
   renderSession();
   renderBestLookup();
+  renderTargetsOverview();
   renderPRHelper();
   renderPlateEditor();
   renderDataTools();
@@ -502,9 +542,10 @@ function exportAllData() {
   }));
   const payload = {
     exportedAt: new Date().toISOString(),
-    schemaVersion: 3,
+    schemaVersion: 4,
     sessions,
     plateInventory: state.plateInventory,
+    targets: state.targets,
   };
   const json = JSON.stringify(payload, null, 2);
   const blob = new Blob([json], { type: "application/json;charset=utf-8;" });
@@ -797,6 +838,173 @@ function downloadBestCsv(personName, exerciseName) {
   URL.revokeObjectURL(url);
 }
 
+function renderTargetsOverview() {
+  const root = document.getElementById("targets-overview");
+  root.innerHTML = "";
+  if (getCurrentSession() || getViewingSession()) return; // home view only
+
+  const collapsed = !!state.uiCollapsed.targetsOverview;
+  if (collapsed) {
+    const card = document.createElement("div");
+    card.className = "card";
+    card.innerHTML = `<h2 class="card-collapsible collapsed" data-collapse="targetsOverview" style="margin:0"><span class="collapse-caret">▸</span> Targets</h2>`;
+    root.appendChild(card);
+    card.querySelector('[data-collapse="targetsOverview"]').addEventListener("click", () => {
+      state.uiCollapsed.targetsOverview = false;
+      saveUI();
+      render();
+    });
+    return;
+  }
+
+  const computed = state.targets.map(t => {
+    const best = findBestAtReps(t.person, t.exercise, t.reps);
+    const achieved = !!(best && best.weight >= t.weight - 1e-9);
+    const pct = best ? Math.round(best.weight / t.weight * 100) : 0;
+    return { ...t, best, achieved, pct };
+  }).sort((a, b) => {
+    if (a.achieved !== b.achieved) return a.achieved ? 1 : -1;
+    if (!a.achieved && a.pct !== b.pct) return b.pct - a.pct;
+    const an = `${a.person} ${a.exercise}`.toLowerCase();
+    const bn = `${b.person} ${b.exercise}`.toLowerCase();
+    return an.localeCompare(bn);
+  });
+
+  const rowsHtml = computed.length === 0
+    ? `<div class="empty small">No targets yet — set one in the Best lift lookup.</div>`
+    : computed.map((t, i) => `
+        <button class="target-ov-row" data-ti="${i}" title="Open in Best lift lookup">
+          <span class="target-ov-name">${escapeHtml(t.person)} · ${escapeHtml(t.exercise)}</span>
+          <span class="target-ov-goal">${t.weight} kg × ${t.reps}</span>
+          <span class="target-ov-progress">
+            <span class="target-ov-bar"><span class="target-ov-fill ${t.achieved ? "achieved" : ""}" style="width:${Math.min(100, t.pct)}%"></span></span>
+            <span class="target-ov-pct ${t.achieved ? "achieved" : ""}">${t.achieved ? "Achieved" : `${t.pct}%`}</span>
+          </span>
+        </button>
+      `).join("");
+
+  const card = document.createElement("div");
+  card.className = "card";
+  card.innerHTML = `
+    <h2 class="card-collapsible" data-collapse="targetsOverview" style="margin-top:0"><span class="collapse-caret">▾</span> Targets</h2>
+    <div class="target-ov-list">${rowsHtml}</div>
+  `;
+  root.appendChild(card);
+
+  card.querySelector('[data-collapse="targetsOverview"]').addEventListener("click", () => {
+    state.uiCollapsed.targetsOverview = true;
+    saveUI();
+    render();
+  });
+
+  card.querySelectorAll(".target-ov-row").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const t = computed[parseInt(btn.getAttribute("data-ti"), 10)];
+      if (!t) return;
+      state.bestLookup.personName = t.person;
+      state.bestLookup.exerciseName = t.exercise;
+      state.editingTargetKey = null;
+      render();
+      const el = document.getElementById("best-lookup");
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  });
+}
+
+function renderTargetInto(rootEl, personName, exerciseName) {
+  const person = (personName || "").trim();
+  const exercise = (exerciseName || "").trim();
+  if (!rootEl) return;
+  if (!person || !exercise) { rootEl.innerHTML = ""; return; }
+
+  const key = `${person.toLowerCase()}::${exercise.toLowerCase()}`;
+  const target = getTarget(person, exercise);
+  const isEditing = state.editingTargetKey === key;
+
+  const rerender = () => renderTargetInto(rootEl, personName, exerciseName);
+
+  if (isEditing) {
+    rootEl.innerHTML = `
+      <div class="target-row editing">
+        <span class="target-label">Target</span>
+        <input type="number" class="target-weight" min="0" step="0.5" placeholder="kg" value="${target ? target.weight : ""}" />
+        <span class="target-x">kg ×</span>
+        <input type="number" class="target-reps" min="1" step="1" placeholder="reps" value="${target ? target.reps : 1}" />
+        <button class="target-save-btn">Save</button>
+        <button class="secondary target-cancel-btn">Cancel</button>
+      </div>
+    `;
+    const weightInput = rootEl.querySelector(".target-weight");
+    const repsInput = rootEl.querySelector(".target-reps");
+    const commit = () => {
+      const w = parseFloat(weightInput.value);
+      const r = parseInt(repsInput.value, 10);
+      if (isNaN(w) || w <= 0 || !r || r < 1) {
+        alert("Enter a target weight and rep count.");
+        return;
+      }
+      setTarget(person, exercise, w, r);
+      state.editingTargetKey = null;
+      render();
+    };
+    rootEl.querySelector(".target-save-btn").addEventListener("click", commit);
+    rootEl.querySelector(".target-cancel-btn").addEventListener("click", () => {
+      state.editingTargetKey = null;
+      rerender();
+    });
+    [weightInput, repsInput].forEach(inp => {
+      inp.addEventListener("keydown", e => {
+        if (e.key === "Enter") { e.preventDefault(); commit(); }
+        if (e.key === "Escape") { state.editingTargetKey = null; rerender(); }
+      });
+    });
+    weightInput.focus();
+    return;
+  }
+
+  if (!target) {
+    rootEl.innerHTML = `
+      <div class="target-row empty">
+        <span class="target-label">Target</span>
+        <button class="icon target-set-btn">Set target</button>
+      </div>
+    `;
+    rootEl.querySelector(".target-set-btn").addEventListener("click", () => {
+      state.editingTargetKey = key;
+      rerender();
+    });
+    return;
+  }
+
+  const best = findBestAtReps(person, exercise, target.reps);
+  const achieved = best && best.weight >= target.weight - 1e-9;
+  const pct = best ? Math.round(best.weight / target.weight * 100) : 0;
+  const statusHtml = achieved
+    ? `<span class="target-status achieved" title="Your best at ${target.reps}+ reps (${best.weight} kg) meets the target">Achieved</span>`
+    : `<span class="target-status">best ${best ? `${best.weight} kg` : "—"} · ${pct}%</span>`;
+
+  rootEl.innerHTML = `
+    <div class="target-row">
+      <span class="target-label">Target</span>
+      <span class="target-value ${achieved ? "achieved" : ""}">${target.weight} kg × ${target.reps}</span>
+      ${statusHtml}
+      <span class="target-actions">
+        <button class="icon target-edit-btn">Edit</button>
+        <button class="danger target-clear-btn">Clear</button>
+      </span>
+    </div>
+  `;
+  rootEl.querySelector(".target-edit-btn").addEventListener("click", () => {
+    state.editingTargetKey = key;
+    rerender();
+  });
+  rootEl.querySelector(".target-clear-btn").addEventListener("click", () => {
+    if (!confirm(`Clear the target for ${person} · ${exercise}?`)) return;
+    clearTarget(person, exercise);
+    render();
+  });
+}
+
 function renderBestLookup() {
   const root = document.getElementById("best-lookup");
   root.innerHTML = "";
@@ -823,6 +1031,7 @@ function renderBestLookup() {
         </div>
       </div>
     </div>
+    <div class="target-root"></div>
     <div class="best-result">${renderBestTableHtml(lookup.personName, lookup.exerciseName)}</div>
   `;
   root.appendChild(card);
@@ -831,12 +1040,15 @@ function renderBestLookup() {
   const exerciseInput = card.querySelector(".best-exercise");
   const resultDiv = card.querySelector(".best-result");
   const downloadBtn = card.querySelector("#best-download-csv");
+  const targetRoot = card.querySelector(".target-root");
+  renderTargetInto(targetRoot, lookup.personName, lookup.exerciseName);
 
   const recalc = () => {
     lookup.personName = personInput.value.trim();
     lookup.exerciseName = exerciseInput.value.trim();
     resultDiv.innerHTML = renderBestTableHtml(lookup.personName, lookup.exerciseName);
     downloadBtn.disabled = !hasAnyBests(lookup.personName, lookup.exerciseName);
+    renderTargetInto(targetRoot, lookup.personName, lookup.exerciseName);
   };
 
   personInput.addEventListener("input", recalc);
@@ -1292,6 +1504,13 @@ function renderExerciseCard(session, participant, exercise, isActive) {
   const prButton = pr
     ? ` <button class="pr-tag" data-toggle-pr-calc="${exercise.id}" title="Click for working weights at 50–100% of PR">(PR: ${pr.weight} kg)</button>`
     : "";
+  const target = getTarget(participant.name, exercise.name);
+  let targetTag = "";
+  if (target) {
+    const targetBest = findBestAtReps(participant.name, exercise.name, target.reps);
+    const targetAchieved = targetBest && targetBest.weight >= target.weight - 1e-9;
+    targetTag = ` <span class="target-tag ${targetAchieved ? "achieved" : ""}" title="${targetAchieved ? "Target achieved" : `Target — best so far: ${targetBest ? `${targetBest.weight} kg` : "none"} at ${target.reps}+ reps`}">Target: ${target.weight} kg × ${target.reps}</span>`;
+  }
   let equipControls = "";
   if (isActive) {
     const types = [["weight", "Weight"], ["barbell", "Barbell"], ["dumbbell", "Dumbbell"], ["band", "Band"], ["bodyweight", "Bodyweight"]];
@@ -1326,7 +1545,7 @@ function renderExerciseCard(session, participant, exercise, isActive) {
     : `
       <button class="exercise-name-btn" data-rename-ex="${exercise.id}" title="Click to rename — this updates the name for ${escapeHtml(participant.name)} in every session">
         ${escapeHtml(exercise.name)}
-      </button>${prButton}${equipControls}
+      </button>${prButton}${targetTag}${equipControls}
     `;
   const calcPanelHtml = (!isRenaming && pr && state.openPRCalcId === exercise.id)
     ? renderPRCalcHtml(pr)
