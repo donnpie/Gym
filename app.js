@@ -512,10 +512,10 @@ function render() {
   const viewing = getViewingSession();
   const active = getCurrentSession();
   const shown = viewing || active;
-  document.querySelector(".container").classList.toggle(
-    "wide",
-    !!shown && shown.participants.length > 1
-  );
+  const container = document.querySelector(".container");
+  container.classList.toggle("wide", !!shown && shown.participants.length > 1);
+  // Side-by-side session + best-lookup layout (takes effect on wide screens).
+  container.classList.toggle("has-session", !!shown);
   document.getElementById("history-heading").style.display = viewing ? "none" : "";
   renderDatalists();
   renderStart();
@@ -760,7 +760,7 @@ function renderBestTableHtml(personName, exerciseName) {
   const epley = (w, r) => w * (1 + r / 30);
   const fmtKg = v => `${(Math.round(v * 10) / 10).toFixed(1)} kg`;
 
-  // Precompute the average-of-2/3/4 for the row-1 headline estimate.
+  // Precompute the average over the 2–6 rep anchor rows for the headline estimate.
   const anchorRows = rows.filter(r => r.reps >= 2 && r.reps <= 6 && r.best);
   const avgEst = anchorRows.length
     ? anchorRows.reduce((s, r) => s + epley(r.best.weight, r.reps), 0) / anchorRows.length
@@ -773,9 +773,9 @@ function renderBestTableHtml(personName, exerciseName) {
     ? `${Math.round(best.weight / ref1RM * 100)}%`
     : `<span class="muted">—</span>`;
 
-  // Reverse Epley: max weight predicted at N reps from the actual 1RM.
-  const revCell = reps => (reps > 1 && ref1RM > 0)
-    ? fmtKg(ref1RM / (1 + reps / 30))
+  // Reverse Epley: max weight predicted at N reps from the estimated 1RM.
+  const revCell = reps => (reps > 1 && avgEst > 0)
+    ? fmtKg(avgEst / (1 + reps / 30))
     : `<span class="muted">—</span>`;
 
   const headline = avgEst != null
@@ -786,7 +786,7 @@ function renderBestTableHtml(personName, exerciseName) {
     if (!best) {
       return `<tr><td>${reps}</td><td class="muted">—</td><td class="muted">—</td><td class="best-pct"><span class="muted">—</span></td><td class="best-est">${revCell(reps)}</td></tr>`;
     }
-    const revVal = (reps > 1 && ref1RM > 0) ? ref1RM / (1 + reps / 30) : null;
+    const revVal = (reps > 1 && avgEst > 0) ? avgEst / (1 + reps / 30) : null;
     const beats = revVal != null && best.weight > revVal + 1e-9;
     return `<tr>
       <td>${reps}</td>
@@ -800,7 +800,7 @@ function renderBestTableHtml(personName, exerciseName) {
     ${headline}
     <table class="best-table">
       <thead>
-        <tr><th>Reps</th><th>Best weight</th><th>Date</th><th title="Best weight as a percentage of your actual best single (row 1).">% of 1RM</th><th title="Max weight predicted at this rep count, worked back from your actual 1RM (row 1) using the Epley formula.">Est. max</th></tr>
+        <tr><th>Reps</th><th>Best weight</th><th>Date</th><th title="Best weight as a percentage of your actual best single (row 1).">% of 1RM</th><th title="Max weight predicted at this rep count, worked back from your estimated 1RM (the headline above) using the Epley formula.">Est. max</th></tr>
       </thead>
       <tbody>${tbody}</tbody>
     </table>

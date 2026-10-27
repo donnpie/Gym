@@ -25,6 +25,24 @@ body {
 }
 .container.wide { max-width: 1180px; }
 
+/* Session + best-lookup side by side while a session is open, on wide screens. */
+@media (min-width: 1000px) {
+  .container.has-session,
+  .container.has-session.wide { max-width: none; padding-left: 24px; padding-right: 24px; }
+  .container.has-session .session-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) clamp(380px, 34%, 620px);
+    gap: 20px;
+    align-items: start;
+  }
+  .container.has-session .session-layout #best-lookup {
+    position: sticky;
+    top: 12px;
+    max-height: calc(100vh - 24px);
+    overflow-y: auto;
+  }
+}
+
 h1 {
   font-size: 22px;
   font-weight: 600;
