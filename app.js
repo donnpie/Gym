@@ -761,7 +761,7 @@ function renderBestTableHtml(personName, exerciseName) {
   const fmtKg = v => `${(Math.round(v * 10) / 10).toFixed(1)} kg`;
 
   // Precompute the average-of-2/3/4 for the row-1 headline estimate.
-  const anchorRows = rows.filter(r => r.reps >= 2 && r.reps <= 4 && r.best);
+  const anchorRows = rows.filter(r => r.reps >= 2 && r.reps <= 6 && r.best);
   const avgEst = anchorRows.length
     ? anchorRows.reduce((s, r) => s + epley(r.best.weight, r.reps), 0) / anchorRows.length
     : null;
@@ -779,7 +779,7 @@ function renderBestTableHtml(personName, exerciseName) {
     : `<span class="muted">—</span>`;
 
   const headline = avgEst != null
-    ? `<div class="est-1rm-headline">Est. 1RM: <strong>${fmtKg(avgEst)}</strong><span class="est-1rm-note">Epley, based on your best sets at 2–4 reps</span></div>`
+    ? `<div class="est-1rm-headline">Est. 1RM: <strong>${fmtKg(avgEst)}</strong><span class="est-1rm-note">Epley, based on your best sets at 2–6 reps</span></div>`
     : "";
 
   const tbody = rows.map(({ reps, best }) => {
