@@ -18,6 +18,11 @@ const DEFAULT_INVENTORY = {
     { kg: 1.25, count: 4 },
     { kg: 0.25, count: 4 },
   ],
+  dumbbells: [2, 4, 5, 7.5, 10, 12.5, 15, 17.5, 20, 22.5, 25, 27.5, 30].map(kg => ({ kg, count: 2 })),
+  kettlebells: [4, 6, 8, 10, 12, 16, 20].map(kg => ({ kg, count: 1 })),
+  accessories: [
+    { id: "acc-landmine", name: "Landmine attachment", count: 1 },
+  ],
 };
 const WEIGHT_TOOLTIP = "Enter the total weight (bar + all plates combined)";
 const RIR_TOOLTIP = "Reps in reserve — how many more reps you could have done";
@@ -123,6 +128,15 @@ function loadInventory() {
         } else {
           state.plateInventory = inv;
         }
+        // Add dumbbell/kettlebell/accessory lists to inventories saved before they existed.
+        let added = false;
+        ["dumbbells", "kettlebells", "accessories"].forEach(key => {
+          if (!Array.isArray(inv[key])) {
+            inv[key] = JSON.parse(JSON.stringify(DEFAULT_INVENTORY[key]));
+            added = true;
+          }
+        });
+        if (added) saveInventory();
       }
     }
   } catch {}
@@ -209,6 +223,42 @@ function getCurrentSession() {
 function getViewingSession() {
   return state.sessions.find(s => s.id === state.viewingId) || null;
 }
+
+// ---------- Collapsible sections ----------
+// A section is any element with class "collapsible" whose header child has class
+// "collapsible-head". A [data-collapse="key"] element inside the header toggles it;
+// when collapsed, every child except the header is hidden (see styles.css).
+// Keys with a ":" are per-item (e.g. "ex:<id>") and are only stored while collapsed.
+
+function isCollapsed(key) {
+  return !!state.uiCollapsed[key];
+}
+function collapsibleClass(key) {
+  return isCollapsed(key) ? "collapsible collapsed" : "collapsible";
+}
+function caretHtml(key) {
+  return `<span class="collapse-caret">${isCollapsed(key) ? "▸" : "▾"}</span>`;
+}
+function caretToggleHtml(key) {
+  return `<span class="collapse-caret" data-collapse="${key}" title="Collapse / expand">${isCollapsed(key) ? "▸" : "▾"}</span>`;
+}
+
+document.addEventListener("click", e => {
+  const toggle = e.target.closest("[data-collapse]");
+  if (!toggle) return;
+  // Let buttons/inputs inside a clickable heading do their own thing.
+  const control = e.target.closest("button, input, textarea, select, a");
+  if (control && toggle.contains(control)) return;
+  const key = toggle.getAttribute("data-collapse");
+  const collapsed = !isCollapsed(key);
+  if (collapsed || !key.includes(":")) state.uiCollapsed[key] = collapsed;
+  else delete state.uiCollapsed[key];
+  saveUI();
+  const section = toggle.closest(".collapsible");
+  if (section) section.classList.toggle("collapsed", collapsed);
+  const caret = toggle.classList.contains("collapse-caret") ? toggle : toggle.querySelector(".collapse-caret");
+  if (caret) caret.textContent = collapsed ? "▸" : "▾";
+});
 
 // ---------- Known values for autocomplete ----------
 
@@ -560,6 +610,44 @@ function exportAllData() {
   URL.revokeObjectURL(url);
 }
 
+// Apply an imported plateInventory. Replace swaps in every list the file has;
+// merge matches bars/accessories by id (then name) and plates/dumbbells/kettlebells by kg,
+// letting the file's values win. Lists missing from the file are left as-is.
+function importInventory(imported, replace) {
+  if (!imported || typeof imported !== "object") return;
+  const inv = state.plateInventory;
+  const copy = list => JSON.parse(JSON.stringify(list));
+  ["bars", "accessories"].forEach(key => {
+    if (!Array.isArray(imported[key])) return;
+    const items = copy(imported[key]).map(b => ({ ...b, id: b.id || uid() }));
+    if (replace || !Array.isArray(inv[key])) {
+      inv[key] = items;
+      return;
+    }
+    items.forEach(b => {
+      const nameLower = (b.name || "").trim().toLowerCase();
+      const idx = inv[key].findIndex(x => x.id === b.id
+        || (nameLower && (x.name || "").trim().toLowerCase() === nameLower));
+      if (idx >= 0) inv[key][idx] = b;
+      else inv[key].push(b);
+    });
+  });
+  ["plates", "dumbbells", "kettlebells"].forEach(key => {
+    if (!Array.isArray(imported[key])) return;
+    const items = copy(imported[key]);
+    if (replace || !Array.isArray(inv[key])) {
+      inv[key] = items;
+      return;
+    }
+    items.forEach(item => {
+      const idx = inv[key].findIndex(x => Math.abs(Number(x.kg) - Number(item.kg)) < EPS);
+      if (idx >= 0) inv[key][idx] = item;
+      else inv[key].push(item);
+    });
+    inv[key].sort((a, b) => key === "plates" ? b.kg - a.kg : a.kg - b.kg);
+  });
+}
+
 function importAllData(file) {
   const reader = new FileReader();
   reader.onload = () => {
@@ -612,9 +700,7 @@ function importAllData(file) {
       state.currentId = null;
       state.viewingId = null;
       if (Array.isArray(payload.targets)) state.targets = payload.targets;
-      if (payload.plateInventory && Array.isArray(payload.plateInventory.plates)) {
-        state.plateInventory = payload.plateInventory;
-      }
+      importInventory(payload.plateInventory, true);
     } else {
       const byId = new Map(cleaned.map(s => [s.id, s]));
       state.sessions = state.sessions.map(s => byId.get(s.id) || s);
@@ -626,6 +712,7 @@ function importAllData(file) {
           state.targets.push(t);
         });
       }
+      importInventory(payload.plateInventory, false);
     }
     migrate();
     save();
@@ -649,9 +736,9 @@ function renderDataTools() {
       (m, p) => m + p.exercises.reduce((k, ex) => k + ex.sets.length, 0), 0), 0);
 
   const card = document.createElement("div");
-  card.className = "card";
+  card.className = `card ${collapsibleClass("dataTools")}`;
   card.innerHTML = `
-    <h2 style="margin-top:0">Data</h2>
+    <h2 class="card-collapsible collapsible-head" data-collapse="dataTools">${caretHtml("dataTools")} Data</h2>
     <p class="data-tools-note">
       All your data lives in this browser's localStorage. Export to a JSON file
       to back it up or feed it into another tool (Power BI, a script, etc.),
@@ -680,24 +767,12 @@ function renderPlateEditor() {
   root.innerHTML = "";
   if (getCurrentSession() || getViewingSession()) return; // out of session only
 
-  const collapsed = !!state.uiCollapsed.plateEditor;
-  if (collapsed) {
-    const card = document.createElement("div");
-    card.className = "card";
-    card.innerHTML = `<h2 class="card-collapsible collapsed" data-collapse="plateEditor" style="margin:0"><span class="collapse-caret">▸</span> Plates &amp; bars</h2>`;
-    root.appendChild(card);
-    card.querySelector('[data-collapse="plateEditor"]').addEventListener("click", () => {
-      state.uiCollapsed.plateEditor = false;
-      saveUI();
-      render();
-    });
-    return;
-  }
-
   const inv = state.plateInventory;
   if (!Array.isArray(inv.bars)) inv.bars = [];
   const card = document.createElement("div");
-  card.className = "card";
+  card.className = `card ${collapsibleClass("plateEditor")}`;
+  const subHead = (key, label) =>
+    `<label class="card-collapsible collapsible-head" data-collapse="${key}">${caretHtml(key)} ${label}</label>`;
 
   const barRowsHtml = inv.bars.map((b, i) => `
     <div class="inv-bar-row-item" data-bidx="${i}">
@@ -720,10 +795,43 @@ function renderPlateEditor() {
     `;
   }).join("");
 
+  const gearSectionHtml = (key, label, addLabel) => {
+    if (!Array.isArray(inv[key])) inv[key] = [];
+    const collapseKey = `inv-${key}`;
+    const rows = inv[key].map((g, i) => `
+      <div class="inv-gear-row" data-gear="${key}" data-gidx="${i}">
+        <input type="number" class="inv-gear-kg" step="0.5" min="0" value="${g.kg}" />
+        <input type="number" class="inv-gear-count" step="1" min="0" value="${g.count}" />
+        <button class="danger small inv-gear-remove" title="Remove this row">×</button>
+      </div>
+    `).join("");
+    return `
+      <div class="inv-gear ${collapsibleClass(collapseKey)}">
+        ${subHead(collapseKey, label)}
+        <div class="inv-gear-header">
+          <span>Weight (kg)</span>
+          <span>Count</span>
+          <span></span>
+        </div>
+        <div class="inv-gear-rows">${rows}</div>
+        <button class="inv-add inv-gear-add" data-gear="${key}">${addLabel}</button>
+      </div>
+    `;
+  };
+
+  if (!Array.isArray(inv.accessories)) inv.accessories = [];
+  const accRowsHtml = inv.accessories.map((a, i) => `
+    <div class="inv-acc-row" data-aidx="${i}">
+      <input type="text" class="inv-acc-name" value="${escapeHtml(a.name || "")}" placeholder="e.g. Landmine attachment" />
+      <input type="number" class="inv-acc-count" step="1" min="0" value="${a.count}" />
+      <button class="danger small inv-acc-remove" title="Remove this accessory">×</button>
+    </div>
+  `).join("");
+
   card.innerHTML = `
-    <h2 class="card-collapsible" data-collapse="plateEditor" style="margin-top:0"><span class="collapse-caret">▾</span> Plates &amp; bars</h2>
-    <div class="inv-bars">
-      <label>Bars (first bar is the default)</label>
+    <h2 class="card-collapsible collapsible-head" data-collapse="plateEditor">${caretHtml("plateEditor")} Plates &amp; bars</h2>
+    <div class="inv-bars ${collapsibleClass("inv-bars")}">
+      ${subHead("inv-bars", "Bars (first bar is the default)")}
       <div class="inv-bars-header">
         <span>Name</span>
         <span>Weight (kg)</span>
@@ -732,8 +840,8 @@ function renderPlateEditor() {
       <div class="inv-bars-rows">${barRowsHtml}</div>
       <button class="inv-add-bar">+ Add bar</button>
     </div>
-    <div class="inv-plates">
-      <label>Plates (weight × total plates owned)</label>
+    <div class="inv-plates ${collapsibleClass("inv-plates")}">
+      ${subHead("inv-plates", "Plates (weight × total plates owned)")}
       <div class="inv-rows-header">
         <span>Weight (kg)</span>
         <span>Plates</span>
@@ -742,6 +850,18 @@ function renderPlateEditor() {
       </div>
       <div class="inv-rows">${plateRowsHtml}</div>
       <button class="inv-add">+ Add plate size</button>
+    </div>
+    ${gearSectionHtml("dumbbells", "Dumbbells (weight × dumbbells owned)", "+ Add dumbbell size")}
+    ${gearSectionHtml("kettlebells", "Kettlebells (weight × kettlebells owned)", "+ Add kettlebell size")}
+    <div class="inv-acc ${collapsibleClass("inv-accessories")}">
+      ${subHead("inv-accessories", "Accessories (attachments needed for certain exercises)")}
+      <div class="inv-bars-header">
+        <span>Name</span>
+        <span>Count</span>
+        <span></span>
+      </div>
+      <div class="inv-acc-rows">${accRowsHtml}</div>
+      <button class="inv-add inv-acc-add">+ Add accessory</button>
     </div>
   `;
   root.appendChild(card);
@@ -793,7 +913,7 @@ function renderPlateEditor() {
     });
   });
 
-  card.querySelector(".inv-add").addEventListener("click", () => {
+  card.querySelector(".inv-add:not(.inv-gear-add):not(.inv-acc-add)").addEventListener("click", () => {
     inv.plates.push({ kg: 0, count: 0 });
     saveInventory();
     render();
@@ -802,10 +922,60 @@ function renderPlateEditor() {
     if (last) last.querySelector(".inv-kg").focus();
   });
 
-  card.querySelector('[data-collapse="plateEditor"]').addEventListener("click", () => {
-    state.uiCollapsed.plateEditor = true;
-    saveUI();
+  card.querySelectorAll(".inv-gear-row").forEach(row => {
+    const list = inv[row.getAttribute("data-gear")];
+    const i = parseInt(row.getAttribute("data-gidx"), 10);
+    const kgInput = row.querySelector(".inv-gear-kg");
+    const countInput = row.querySelector(".inv-gear-count");
+    const update = () => {
+      list[i].kg = parseFloat(kgInput.value) || 0;
+      list[i].count = parseInt(countInput.value, 10) || 0;
+      saveInventory();
+    };
+    kgInput.addEventListener("input", update);
+    countInput.addEventListener("input", update);
+    row.querySelector(".inv-gear-remove").addEventListener("click", () => {
+      list.splice(i, 1);
+      saveInventory();
+      render();
+    });
+  });
+  card.querySelectorAll(".inv-gear-add").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const key = btn.getAttribute("data-gear");
+      inv[key].push({ kg: 0, count: key === "dumbbells" ? 2 : 1 });
+      saveInventory();
+      render();
+      const rows = document.querySelectorAll(`#plate-editor .inv-gear-row[data-gear="${key}"]`);
+      const last = rows[rows.length - 1];
+      if (last) last.querySelector(".inv-gear-kg").focus();
+    });
+  });
+
+  card.querySelectorAll(".inv-acc-row").forEach(row => {
+    const i = parseInt(row.getAttribute("data-aidx"), 10);
+    const nameInput = row.querySelector(".inv-acc-name");
+    const countInput = row.querySelector(".inv-acc-count");
+    const update = () => {
+      inv.accessories[i].name = nameInput.value;
+      inv.accessories[i].count = parseInt(countInput.value, 10) || 0;
+      saveInventory();
+    };
+    nameInput.addEventListener("input", update);
+    countInput.addEventListener("input", update);
+    row.querySelector(".inv-acc-remove").addEventListener("click", () => {
+      inv.accessories.splice(i, 1);
+      saveInventory();
+      render();
+    });
+  });
+  card.querySelector(".inv-acc-add").addEventListener("click", () => {
+    inv.accessories.push({ id: uid(), name: "", count: 1 });
+    saveInventory();
     render();
+    const rows = document.querySelectorAll("#plate-editor .inv-acc-row");
+    const last = rows[rows.length - 1];
+    if (last) last.querySelector(".inv-acc-name").focus();
   });
 }
 
@@ -830,6 +1000,16 @@ function findBestAtReps(personName, exerciseName, reps) {
   return best;
 }
 
+// Estimated 1RM (Epley), averaged over the best sets at 2–6 reps. Null if none.
+function estimate1RM(personName, exerciseName) {
+  const ests = [];
+  for (let reps = 2; reps <= 6; reps++) {
+    const best = findBestAtReps(personName, exerciseName, reps);
+    if (best) ests.push(best.weight * (1 + reps / 30));
+  }
+  return ests.length ? ests.reduce((a, b) => a + b, 0) / ests.length : null;
+}
+
 function renderBestTableHtml(personName, exerciseName) {
   if (!personName || !exerciseName) {
     return `<div class="best-empty">Enter a person and an exercise to populate the table.</div>`;
@@ -844,14 +1024,10 @@ function renderBestTableHtml(personName, exerciseName) {
   if (!hasAny) {
     return `<div class="best-empty">No sets logged for ${escapeHtml(personName)} · ${escapeHtml(exerciseName)}.</div>`;
   }
-  const epley = (w, r) => w * (1 + r / 30);
   const fmtKg = v => `${(Math.round(v * 10) / 10).toFixed(1)} kg`;
 
-  // Precompute the average over the 2–6 rep anchor rows for the headline estimate.
-  const anchorRows = rows.filter(r => r.reps >= 2 && r.reps <= 6 && r.best);
-  const avgEst = anchorRows.length
-    ? anchorRows.reduce((s, r) => s + epley(r.best.weight, r.reps), 0) / anchorRows.length
-    : null;
+  // Headline estimate from the 2–6 rep anchor rows.
+  const avgEst = estimate1RM(personName, exerciseName);
 
   // Current 1RM reference: the actual best single (row 1's best weight).
   const ref1RM = rows[0] && rows[0].best ? rows[0].best.weight : null;
@@ -930,25 +1106,12 @@ function renderTargetsOverview() {
   root.innerHTML = "";
   if (getCurrentSession() || getViewingSession()) return; // home view only
 
-  const collapsed = !!state.uiCollapsed.targetsOverview;
-  if (collapsed) {
-    const card = document.createElement("div");
-    card.className = "card";
-    card.innerHTML = `<h2 class="card-collapsible collapsed" data-collapse="targetsOverview" style="margin:0"><span class="collapse-caret">▸</span> Targets</h2>`;
-    root.appendChild(card);
-    card.querySelector('[data-collapse="targetsOverview"]').addEventListener("click", () => {
-      state.uiCollapsed.targetsOverview = false;
-      saveUI();
-      render();
-    });
-    return;
-  }
-
   const computed = state.targets.map(t => {
     const best = findBestAtReps(t.person, t.exercise, t.reps);
     const achieved = !!(best && best.weight >= t.weight - 1e-9);
     const pct = best ? Math.round(best.weight / t.weight * 100) : 0;
-    return { ...t, best, achieved, pct };
+    const single = findBestAtReps(t.person, t.exercise, 1);
+    return { ...t, best, achieved, pct, est: estimate1RM(t.person, t.exercise), actual: single ? single.weight : null };
   }).sort((a, b) => {
     if (a.achieved !== b.achieved) return a.achieved ? 1 : -1;
     if (!a.achieved && a.pct !== b.pct) return b.pct - a.pct;
@@ -962,7 +1125,9 @@ function renderTargetsOverview() {
     : computed.map((t, i) => `
         <button class="target-ov-row" data-ti="${i}" title="Open in Best lift lookup">
           <span class="target-ov-name">${escapeHtml(t.person)} · ${escapeHtml(t.exercise)}</span>
-          <span class="target-ov-goal">${t.weight} kg × ${t.reps}</span>
+          <span class="target-ov-goal"><span class="target-ov-mlabel">Target </span>${t.weight} kg × ${t.reps}</span>
+          <span class="target-ov-est" title="Estimated 1RM (Epley, from best sets at 2–6 reps)"><span class="target-ov-mlabel">Est. 1RM </span>${t.est != null ? `${(Math.round(t.est * 10) / 10).toFixed(1)} kg` : "—"}</span>
+          <span class="target-ov-est" title="Actual 1RM (heaviest single logged)"><span class="target-ov-mlabel">Actual 1RM </span>${t.actual != null ? `${t.actual} kg` : "—"}</span>
           <span class="target-ov-progress">
             <span class="target-ov-bar"><span class="target-ov-fill ${t.achieved ? "achieved" : ""}" style="width:${Math.min(100, t.pct)}%"></span></span>
             <span class="target-ov-pct ${t.achieved ? "achieved" : ""}">${t.achieved ? "Achieved" : `${t.pct}%`}</span>
@@ -971,18 +1136,22 @@ function renderTargetsOverview() {
       `).join("");
 
   const card = document.createElement("div");
-  card.className = "card";
+  card.className = `card ${collapsibleClass("targetsOverview")}`;
   card.innerHTML = `
-    <h2 class="card-collapsible" data-collapse="targetsOverview" style="margin-top:0"><span class="collapse-caret">▾</span> Targets</h2>
-    <div class="target-ov-list">${rowsHtml}</div>
+    <h2 class="card-collapsible collapsible-head" data-collapse="targetsOverview">${caretHtml("targetsOverview")} Targets</h2>
+    <div class="target-ov-list">
+      ${computed.length ? `
+        <div class="target-ov-head">
+          <span>Lift</span>
+          <span>Target</span>
+          <span title="Estimated 1RM (Epley, from best sets at 2–6 reps)">Est. 1RM</span>
+          <span title="Actual 1RM (heaviest single logged)">Actual 1RM</span>
+          <span>Progress to target</span>
+        </div>` : ""}
+      ${rowsHtml}
+    </div>
   `;
   root.appendChild(card);
-
-  card.querySelector('[data-collapse="targetsOverview"]').addEventListener("click", () => {
-    state.uiCollapsed.targetsOverview = true;
-    saveUI();
-    render();
-  });
 
   card.querySelectorAll(".target-ov-row").forEach(btn => {
     btn.addEventListener("click", () => {
@@ -1098,12 +1267,12 @@ function renderBestLookup() {
   const lookup = state.bestLookup;
 
   const card = document.createElement("div");
-  card.className = "card";
+  card.className = `card ${collapsibleClass("bestLookup")}`;
   const canDownload = hasAnyBests(lookup.personName, lookup.exerciseName);
 
   card.innerHTML = `
-    <div class="best-header">
-      <h2 style="margin:0">Best lift lookup</h2>
+    <div class="best-header collapsible-head">
+      <h2 class="card-collapsible" data-collapse="bestLookup" style="margin:0">${caretHtml("bestLookup")} Best lift lookup</h2>
       <button class="icon" id="best-download-csv" ${canDownload ? "" : "disabled"} title="Download the table as CSV">Download CSV</button>
     </div>
     <div class="best-lookup-form">
@@ -1150,20 +1319,6 @@ function renderPRHelper() {
   const root = document.getElementById("pr-helper");
   root.innerHTML = "";
 
-  const collapsed = !!state.uiCollapsed.prHelper;
-  if (collapsed) {
-    const card = document.createElement("div");
-    card.className = "card";
-    card.innerHTML = `<h2 class="card-collapsible collapsed" data-collapse="prHelper" style="margin:0"><span class="collapse-caret">▸</span> PR helper</h2>`;
-    root.appendChild(card);
-    card.querySelector('[data-collapse="prHelper"]').addEventListener("click", () => {
-      state.uiCollapsed.prHelper = false;
-      saveUI();
-      render();
-    });
-    return;
-  }
-
   const prs = getAllPRs();
   const w = state.helperWeight;
 
@@ -1182,9 +1337,9 @@ function renderPRHelper() {
   `;
 
   const card = document.createElement("div");
-  card.className = "card";
+  card.className = `card ${collapsibleClass("prHelper")}`;
   card.innerHTML = `
-    <h2 class="card-collapsible" data-collapse="prHelper" style="margin-top:0"><span class="collapse-caret">▾</span> PR helper</h2>
+    <h2 class="card-collapsible collapsible-head" data-collapse="prHelper">${caretHtml("prHelper")} PR helper</h2>
     <div>
       <label for="helper-weight">Calculate percentages of</label>
       <input type="number" id="helper-weight" min="0" step="0.5" value="${w != null ? w : ""}" placeholder="Enter a weight (kg)" />
@@ -1212,12 +1367,6 @@ function renderPRHelper() {
       input.focus();
     });
   });
-
-  card.querySelector('[data-collapse="prHelper"]').addEventListener("click", () => {
-    state.uiCollapsed.prHelper = true;
-    saveUI();
-    render();
-  });
 }
 
 // ---------- Start session ----------
@@ -1228,7 +1377,7 @@ function renderStart() {
   if (getCurrentSession() || getViewingSession()) return;
 
   const card = document.createElement("div");
-  card.className = "card";
+  card.className = `card ${collapsibleClass("newSession")}`;
   const s = state.setup;
 
   const countButtons = [1, 2, 3].map(n =>
@@ -1251,7 +1400,7 @@ function renderStart() {
   }
 
   card.innerHTML = `
-    <h2 style="margin-top:0">New session</h2>
+    <h2 class="card-collapsible collapsible-head" data-collapse="newSession">${caretHtml("newSession")} New session</h2>
     <div class="row session">
       <div>
         <label for="session-date">Date</label>
@@ -1329,7 +1478,7 @@ function renderSession() {
   const isActive = !!active && !viewing;
 
   const card = document.createElement("div");
-  card.className = "card";
+  card.className = `card ${collapsibleClass("session")}`;
 
   const headerTag = isActive
     ? ` <span style="color:var(--muted);font-weight:400">(active)</span>`
@@ -1349,8 +1498,8 @@ function renderSession() {
     : `<button class="session-date-btn" data-edit-date="${session.id}" title="Click to change the session date">${formatDate(session.date)}</button>`;
 
   card.innerHTML = `
-    <div class="session-header">
-      <div class="session-date">${dateDisplay}${headerTag}</div>
+    <div class="session-header collapsible-head">
+      <div class="session-date">${caretToggleHtml("session")}${dateDisplay}${headerTag}</div>
       ${rightBtn}
     </div>
     <div class="workout-grid" style="--cols:${session.participants.length}"></div>
@@ -1435,7 +1584,8 @@ function renderSession() {
 
 function renderParticipantColumn(session, participant, isActive) {
   const col = document.createElement("div");
-  col.className = "participant-col";
+  const pKey = `p:${participant.id}`;
+  col.className = `participant-col ${collapsibleClass(pKey)}`;
 
   const total = participantVolume(participant);
   const totalHtml = total > 0
@@ -1464,7 +1614,8 @@ function renderParticipantColumn(session, participant, isActive) {
     : `<button class="participant-name-btn" data-rename-participant="${participant.id}" title="Click to rename — updates this name in every session">${escapeHtml(participant.name)}</button>`;
 
   col.innerHTML = `
-    <div class="participant-header">
+    <div class="participant-header collapsible-head">
+      ${caretToggleHtml(pKey)}
       ${nameHtml}
       ${totalHtml}
     </div>
@@ -1540,7 +1691,8 @@ function renderParticipantColumn(session, participant, isActive) {
 
 function renderExerciseCard(session, participant, exercise, isActive) {
   const wrap = document.createElement("div");
-  wrap.className = "exercise-card";
+  const exKey = `ex:${exercise.id}`;
+  wrap.className = `exercise-card ${collapsibleClass(exKey)}`;
 
   const eq = exercise.equipment || { type: "weight" };
   const eqType = eq.type || "weight";
@@ -1659,7 +1811,8 @@ function renderExerciseCard(session, participant, exercise, isActive) {
   }
 
   wrap.innerHTML = `
-    <div class="exercise-header">
+    <div class="exercise-header collapsible-head">
+      ${caretToggleHtml(exKey)}
       <div class="exercise-title">${titleInner}</div>
       <button class="danger small" data-del-ex="${exercise.id}" title="Remove exercise">×</button>
     </div>
@@ -1952,6 +2105,9 @@ function wireSetRowHandlers(wrap, exercise) {
 function renderHistory() {
   const root = document.getElementById("history");
   root.innerHTML = "";
+  const section = document.getElementById("history-section");
+  section.className = collapsibleClass("history");
+  section.querySelector(".collapse-caret").textContent = isCollapsed("history") ? "▸" : "▾";
   if (getViewingSession()) return;
 
   const past = state.sessions
@@ -1966,7 +2122,8 @@ function renderHistory() {
 
   past.forEach(session => {
     const card = document.createElement("div");
-    card.className = "card";
+    const hKey = `h:${session.id}`;
+    card.className = `card ${collapsibleClass(hKey)}`;
 
     const sessionTotal = session.participants.reduce((sum, p) => sum + participantVolume(p), 0);
 
@@ -1993,8 +2150,8 @@ function renderHistory() {
       : "";
 
     card.innerHTML = `
-      <div class="session-header">
-        <div class="session-date">${formatDate(session.date)} <span style="color:var(--muted);font-weight:400">· ${session.participants.length} ${session.participants.length === 1 ? "person" : "people"}</span>${sessionTotalTag}</div>
+      <div class="session-header collapsible-head">
+        <div class="session-date">${caretToggleHtml(hKey)}${formatDate(session.date)} <span style="color:var(--muted);font-weight:400">· ${session.participants.length} ${session.participants.length === 1 ? "person" : "people"}</span>${sessionTotalTag}</div>
         <div style="display:flex;gap:8px">
           <button class="icon" data-open="${session.id}">Open</button>
           <button class="danger" data-del-session="${session.id}">Delete</button>
