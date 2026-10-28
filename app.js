@@ -560,6 +560,84 @@ function exportAllData() {
   URL.revokeObjectURL(url);
 }
 
+function importAllData(file) {
+  const reader = new FileReader();
+  reader.onload = () => {
+    let data;
+    try {
+      data = JSON.parse(reader.result);
+    } catch {
+      alert("That file isn't valid JSON.");
+      return;
+    }
+    // Accept a full export payload or a bare array of sessions.
+    const payload = Array.isArray(data) ? { sessions: data } : data;
+    if (!payload || !Array.isArray(payload.sessions)) {
+      alert("No sessions found in that file. Expected an export from this app.");
+      return;
+    }
+    const incoming = payload.sessions.filter(s => s && typeof s === "object");
+    const existingIds = new Set(state.sessions.map(s => s.id));
+    const dupes = incoming.filter(s => existingIds.has(s.id)).length;
+
+    let replace = false;
+    if (state.sessions.length) {
+      replace = confirm(
+        `Import ${incoming.length} session(s).\n\n` +
+        `OK = replace all current data (${state.sessions.length} session(s)).\n` +
+        `Cancel = merge into current data` +
+        (dupes ? ` (${dupes} session(s) with matching IDs will be overwritten).` : ".")
+      );
+    }
+
+    // Strip export-only fields and make sure every record has an id.
+    const cleaned = incoming.map(s => ({
+      ...s,
+      id: s.id || uid(),
+      participants: (s.participants || []).map(p => ({
+        ...p,
+        id: p.id || uid(),
+        exercises: (p.exercises || []).map(ex => ({
+          ...ex,
+          id: ex.id || uid(),
+          sets: Array.isArray(ex.sets)
+            ? ex.sets.map(({ setNumber, ...set }) => ({ ...set, id: set.id || uid() }))
+            : ex.sets,
+        })),
+      })),
+    }));
+
+    if (replace) {
+      state.sessions = cleaned;
+      state.currentId = null;
+      state.viewingId = null;
+      if (Array.isArray(payload.targets)) state.targets = payload.targets;
+      if (payload.plateInventory && Array.isArray(payload.plateInventory.plates)) {
+        state.plateInventory = payload.plateInventory;
+      }
+    } else {
+      const byId = new Map(cleaned.map(s => [s.id, s]));
+      state.sessions = state.sessions.map(s => byId.get(s.id) || s);
+      const kept = new Set(state.sessions.map(s => s.id));
+      cleaned.forEach(s => { if (!kept.has(s.id)) state.sessions.push(s); });
+      if (Array.isArray(payload.targets)) {
+        payload.targets.forEach(t => {
+          state.targets = state.targets.filter(x => !targetMatches(x, t.person, t.exercise));
+          state.targets.push(t);
+        });
+      }
+    }
+    migrate();
+    save();
+    saveTargets();
+    saveInventory();
+    render();
+    alert(`Imported ${cleaned.length} session(s).`);
+  };
+  reader.onerror = () => alert("Couldn't read that file.");
+  reader.readAsText(file);
+}
+
 function renderDataTools() {
   const root = document.getElementById("data-tools");
   root.innerHTML = "";
@@ -576,16 +654,25 @@ function renderDataTools() {
     <h2 style="margin-top:0">Data</h2>
     <p class="data-tools-note">
       All your data lives in this browser's localStorage. Export to a JSON file
-      to back it up or feed it into another tool (Power BI, a script, etc.).
+      to back it up or feed it into another tool (Power BI, a script, etc.),
+      or import a previous export to restore it.
     </p>
     <div class="data-tools-row">
       <button id="export-json-btn">Export all data (JSON)</button>
+      <button id="import-json-btn">Import data (JSON)</button>
+      <input type="file" id="import-json-input" accept=".json,application/json" hidden />
       <span class="data-tools-stats">${sessionCount} session${sessionCount === 1 ? "" : "s"} · ${setCount} set${setCount === 1 ? "" : "s"}</span>
     </div>
   `;
   root.appendChild(card);
 
   card.querySelector("#export-json-btn").addEventListener("click", exportAllData);
+  const importInput = card.querySelector("#import-json-input");
+  card.querySelector("#import-json-btn").addEventListener("click", () => importInput.click());
+  importInput.addEventListener("change", () => {
+    if (importInput.files[0]) importAllData(importInput.files[0]);
+    importInput.value = "";
+  });
 }
 
 function renderPlateEditor() {
