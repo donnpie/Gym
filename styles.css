@@ -365,6 +365,13 @@ button.icon {
   .set-edit-form .cancel-edit { grid-column: 3; }
 }
 
+.set-edit-form.cardio { grid-template-columns: 1fr 1fr auto auto; }
+@media (max-width: 760px) {
+  .set-edit-form.cardio { grid-template-columns: 1fr 1fr; }
+  .set-edit-form.cardio .save-edit { grid-column: 1; }
+  .set-edit-form.cardio .cancel-edit { grid-column: 2; }
+}
+
 /* Per-exercise total */
 .exercise-total {
   font-size: 12px;
@@ -551,6 +558,7 @@ button.icon {
 }
 /* Equipment controls on exercise cards */
 .equip-select,
+.activity-select,
 .bar-select {
   width: auto;
   background: var(--panel);
@@ -564,6 +572,7 @@ button.icon {
   font-family: inherit;
 }
 .equip-select:hover,
+.activity-select:hover,
 .bar-select:hover {
   border-color: var(--accent);
   color: var(--accent);
@@ -1110,6 +1119,16 @@ button.icon {
   margin-top: 4px;
 }
 
+.add-set-form.cardio { grid-template-columns: 1fr 1fr; }
+.add-set-form.cardio > button { grid-column: span 2; }
+.cardio-preview {
+  grid-column: span 2;
+  font-size: 12px;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+.cardio-preview:empty { display: none; }
+
 /* Add-exercise form */
 .add-exercise {
   background: var(--panel);
@@ -1122,6 +1141,36 @@ button.icon {
   grid-template-columns: 1fr auto;
   gap: 8px;
   align-items: end;
+}
+
+.add-cardio-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+.add-cardio-row button {
+  flex: 1;
+  padding: 6px 10px;
+  font-size: 13px;
+}
+.unit-toggle {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.unit-btn {
+  background: transparent;
+  color: var(--muted);
+  border: none;
+  border-radius: 0;
+  padding: 1px 7px;
+  font-size: 11px;
+  font-weight: 500;
+}
+.unit-btn.active {
+  background: var(--accent);
+  color: #fff;
 }
 
 /* History */

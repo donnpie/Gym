@@ -38,6 +38,7 @@ const state = {
   editingSessionDateId: null,
   openPRCalcId: null,
   helperWeight: null,
+  distanceUnit: "km", // "km" or "mi" — display/entry unit for cardio; data is always stored in km
   bestLookup: { personName: "", exerciseName: "" },
   targets: [],
   editingTargetKey: null,
@@ -100,6 +101,7 @@ function load() {
       if (ui.uiCollapsed) {
         state.uiCollapsed = { ...state.uiCollapsed, ...ui.uiCollapsed };
       }
+      if (ui.distanceUnit === "mi") state.distanceUnit = "mi";
     }
   } catch {
     state.sessions = [];
@@ -156,6 +158,7 @@ function saveUI() {
     currentId: state.currentId,
     viewingId: state.viewingId,
     uiCollapsed: state.uiCollapsed,
+    distanceUnit: state.distanceUnit,
   }));
 }
 
@@ -195,6 +198,12 @@ function migrate() {
         }
         delete ex.showPlates;
         delete ex.barKg;
+        changed = true;
+      });
+      // Cardio logged before activities existed: infer from the name.
+      p.exercises.forEach(ex => {
+        if (!isCardio(ex) || ex.equipment.activity) return;
+        ex.equipment.activity = /walk/i.test(ex.name || "") ? "walk" : "run";
         changed = true;
       });
     });
@@ -310,6 +319,87 @@ function fmt(n) {
   return Math.round(n).toLocaleString();
 }
 
+// ---------- Cardio ----------
+// A cardio exercise has equipment { type: "cardio", activity }; its sets are
+// { id, durationSec, distanceKm } instead of reps/weight. Distances are always
+// stored in km and converted to state.distanceUnit for entry and display.
+
+// Add an entry here to offer a new cardio activity (e.g. cycling, swimming).
+const CARDIO_ACTIVITIES = [
+  { id: "run", label: "Run" },
+  { id: "walk", label: "Walk" },
+];
+const KM_PER_MILE = 1.609344;
+
+function cardioActivity(ex) {
+  const id = ex && ex.equipment && ex.equipment.activity;
+  return CARDIO_ACTIVITIES.find(a => a.id === id) || CARDIO_ACTIVITIES[0];
+}
+function kmToUnit(km) {
+  return state.distanceUnit === "mi" ? km / KM_PER_MILE : km;
+}
+function unitToKm(v) {
+  return state.distanceUnit === "mi" ? v * KM_PER_MILE : v;
+}
+
+function isCardio(ex) {
+  return !!(ex && ex.equipment && ex.equipment.type === "cardio");
+}
+
+// Accepts "h:mm:ss", "mm:ss" or plain minutes ("30", "27.5"). Returns seconds, or null if invalid.
+function parseDuration(str) {
+  const t = String(str || "").trim();
+  if (!t) return null;
+  if (t.includes(":")) {
+    const parts = t.split(":").map(Number);
+    if (parts.length > 3 || parts.some(n => isNaN(n) || n < 0)) return null;
+    const sec = parts.reduce((acc, n) => acc * 60 + n, 0);
+    return sec > 0 ? Math.round(sec) : null;
+  }
+  const min = parseFloat(t);
+  return !isNaN(min) && min > 0 ? Math.round(min * 60) : null;
+}
+
+function formatDuration(sec) {
+  const total = Math.round(sec);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const pad = n => String(n).padStart(2, "0");
+  return h ? `${h}:${pad(m)}:${pad(total % 60)}` : `${m}:${pad(total % 60)}`;
+}
+
+// Distance in the current unit, e.g. "5.00 km" or "3.11 mi".
+function fmtDist(km) {
+  return `${(Math.round(kmToUnit(km) * 100) / 100).toFixed(2)} ${state.distanceUnit}`;
+}
+
+// Average speed plus pace in the current unit, e.g. "10.5 km/h · 5:43 /km" or "6.5 mph · 9:12 /mi".
+function speedText(distanceKm, durationSec) {
+  if (!(distanceKm > 0) || !(durationSec > 0)) return "";
+  const dist = kmToUnit(distanceKm);
+  const speed = dist / (durationSec / 3600);
+  const mi = state.distanceUnit === "mi";
+  return `${speed.toFixed(1)} ${mi ? "mph" : "km/h"} · ${formatDuration(durationSec / dist)} /${state.distanceUnit}`;
+}
+
+function cardioSummary(distanceKm, durationSec) {
+  const speed = speedText(distanceKm, durationSec);
+  return `${fmtDist(distanceKm)} in ${formatDuration(durationSec)}${speed ? ` · ${speed}` : ""}`;
+}
+
+function unitToggleHtml() {
+  return `<span class="unit-toggle" title="Show distances in kilometres or miles">${["km", "mi"].map(u =>
+    `<button class="unit-btn ${state.distanceUnit === u ? "active" : ""}" data-unit="${u}">${u}</button>`
+  ).join("")}</span>`;
+}
+
+function cardioTotals(ex) {
+  return ex.sets.reduce((t, set) => ({
+    durationSec: t.durationSec + (Number(set.durationSec) || 0),
+    distanceKm: t.distanceKm + (Number(set.distanceKm) || 0),
+  }), { durationSec: 0, distanceKm: 0 });
+}
+
 // ---------- Plate calculator ----------
 
 // Read plate inventory from state, merging duplicate weights and dropping unpaired plates.
@@ -420,6 +510,7 @@ function getPR(exerciseName, personName) {
     if ((p.name || "").trim().toLowerCase() !== targetP) return;
     p.exercises.forEach(ex => {
       if ((ex.name || "").trim().toLowerCase() !== targetEx) return;
+      if (isCardio(ex)) return;
       ex.sets.forEach(set => {
         const w = Number(set.weight) || 0;
         if (w > max) { max = w; best = set; }
@@ -988,6 +1079,7 @@ function findBestAtReps(personName, exerciseName, reps) {
     if ((p.name || "").trim().toLowerCase() !== pLower) return;
     p.exercises.forEach(ex => {
       if ((ex.name || "").trim().toLowerCase() !== eLower) return;
+      if (isCardio(ex)) return;
       ex.sets.forEach(set => {
         if (Number(set.reps) < reps) return;
         const w = Number(set.weight) || 0;
@@ -1599,6 +1691,9 @@ function renderParticipantColumn(session, participant, isActive) {
         <input type="text" class="new-ex-name" placeholder="e.g. Bench press" list="known-exercises" autocomplete="off" />
         <button class="add-ex-btn">Add</button>
       </div>
+      <div class="add-cardio-row">
+        <button class="secondary add-cardio-btn" title="Log cardio (run, walk, …): duration and distance">+ Cardio</button>
+      </div>
     </div>
   ` : "";
 
@@ -1635,20 +1730,27 @@ function renderParticipantColumn(session, participant, isActive) {
   if (isActive) {
     const newExInput = col.querySelector(".new-ex-name");
     const addExBtn = col.querySelector(".add-ex-btn");
+    const pushExercise = newEx => {
+      participant.exercises.push(newEx);
+      save();
+      render();
+      const inputs = document.querySelectorAll(`[data-pid="${participant.id}"] .set-input-reps, [data-pid="${participant.id}"] .cardio-input-duration`);
+      if (inputs.length) inputs[inputs.length - 1].focus();
+    };
     const addEx = () => {
       const name = newExInput.value.trim();
       if (!name) { newExInput.focus(); return; }
       const newEx = { id: uid(), name, sets: [] };
       const prevEquip = findLastEquipment(name, participant.name);
       if (prevEquip) newEx.equipment = JSON.parse(JSON.stringify(prevEquip));
-      participant.exercises.push(newEx);
-      save();
-      render();
-      const cards = document.querySelectorAll(`[data-pid="${participant.id}"] .set-input-reps`);
-      if (cards.length) cards[cards.length - 1].focus();
+      pushExercise(newEx);
     };
     addExBtn.addEventListener("click", addEx);
     newExInput.addEventListener("keydown", e => { if (e.key === "Enter") addEx(); });
+    col.querySelector(".add-cardio-btn").addEventListener("click", () => {
+      const activity = CARDIO_ACTIVITIES[0];
+      pushExercise({ id: uid(), name: activity.label, equipment: { type: "cardio", activity: activity.id }, sets: [] });
+    });
   }
 
   // Participant rename handlers
@@ -1696,6 +1798,7 @@ function renderExerciseCard(session, participant, exercise, isActive) {
 
   const eq = exercise.equipment || { type: "weight" };
   const eqType = eq.type || "weight";
+  const cardio = eqType === "cardio";
   const weightLabel = eqType === "dumbbell" ? "Weight/DB (kg)"
     : eqType === "bodyweight" ? "Added (kg)"
     : "Weight (kg)";
@@ -1711,15 +1814,35 @@ function renderExerciseCard(session, participant, exercise, isActive) {
   const defRir = lastSet && lastSet.rir != null ? lastSet.rir : "";
 
   const setsListHtml = exercise.sets.length === 0
-    ? `<div class="empty small">No sets${isActive ? " yet" : ""}.</div>`
-    : exercise.sets.map((s, i) => renderSetRowHtml(s, i)).join("");
+    ? `<div class="empty small">${cardio ? "Nothing logged" : "No sets"}${isActive || cardio ? " yet" : ""}.</div>`
+    : exercise.sets.map((s, i) => cardio ? renderCardioRowHtml(s, i) : renderSetRowHtml(s, i)).join("");
 
-  const total = exerciseVolume(exercise);
-  const totalHtml = exercise.sets.length > 0
-    ? `<div class="exercise-total">Total: ${fmt(total)} kg</div>`
-    : "";
+  let totalHtml = "";
+  if (cardio) {
+    // Per-row figures already show the speed; only total when there are several entries.
+    const t = cardioTotals(exercise);
+    if (exercise.sets.length > 1) {
+      totalHtml = `<div class="exercise-total" title="Total distance and time; average speed over the whole thing">Total: ${cardioSummary(t.distanceKm, t.durationSec)}</div>`;
+    }
+  } else if (exercise.sets.length > 0) {
+    totalHtml = `<div class="exercise-total">Total: ${fmt(exerciseVolume(exercise))} kg</div>`;
+  }
 
-  const addSetHtml = isActive ? `
+  // Cardio stays editable in past sessions (add entries, change activity) without resuming.
+  const addSetHtml = !isActive && !cardio ? "" : cardio ? `
+    <div class="add-set-form cardio">
+      <div>
+        <label title="h:mm:ss, mm:ss, or minutes">Duration</label>
+        <input type="text" class="cardio-input-duration" placeholder="e.g. 28:30" inputmode="numeric" title="h:mm:ss, mm:ss, or minutes" />
+      </div>
+      <div>
+        <label>Distance (${state.distanceUnit})</label>
+        <input type="number" class="cardio-input-distance" min="0" step="0.01" placeholder="e.g. ${state.distanceUnit === "mi" ? "3.1" : "5"}" />
+      </div>
+      <div class="cardio-preview"></div>
+      <button class="add-set-btn">Add</button>
+    </div>
+  ` : `
     <div class="add-set-form">
       <div>
         <label>Reps</label>
@@ -1736,14 +1859,14 @@ function renderExerciseCard(session, participant, exercise, isActive) {
       <button class="add-set-btn">Add set</button>
     </div>
     ${eqType === "barbell" ? `<div class="plates-hint-root">${defWeight !== "" ? renderPlatesHintHtml(defWeight, resolveBar(exercise).kg) : `<div class="plates-hint warning">Enter a weight to see plate breakdown</div>`}</div>` : ""}
-  ` : "";
+  `;
 
   const isRenaming = state.editingExerciseId === exercise.id;
   const pr = getPR(exercise.name, participant.name);
   const prButton = pr
     ? ` <button class="pr-tag" data-toggle-pr-calc="${exercise.id}" title="Click for working weights at 50–100% of PR">(PR: ${pr.weight} kg)</button>`
     : "";
-  const target = getTarget(participant.name, exercise.name);
+  const target = cardio ? null : getTarget(participant.name, exercise.name);
   let targetTag = "";
   if (target) {
     const targetBest = findBestAtReps(participant.name, exercise.name, target.reps);
@@ -1751,7 +1874,12 @@ function renderExerciseCard(session, participant, exercise, isActive) {
     targetTag = ` <span class="target-tag ${targetAchieved ? "achieved" : ""}" title="${targetAchieved ? "Target achieved" : `Target — best so far: ${targetBest ? `${targetBest.weight} kg` : "none"} at ${target.reps}+ reps`}">Target: ${target.weight} kg × ${target.reps}</span>`;
   }
   let equipControls = "";
-  if (isActive) {
+  if (cardio) {
+    const activity = cardioActivity(exercise);
+    equipControls = ` <select class="activity-select" title="Type of cardio">${CARDIO_ACTIVITIES.map(a =>
+      `<option value="${a.id}" ${a.id === activity.id ? "selected" : ""}>${a.label}</option>`).join("")}</select>`;
+    equipControls += ` ${unitToggleHtml()}`;
+  } else if (isActive) {
     const types = [["weight", "Weight"], ["barbell", "Barbell"], ["dumbbell", "Dumbbell"], ["band", "Band"], ["bodyweight", "Bodyweight"]];
     const typeOpts = types.map(([v, l]) => `<option value="${v}" ${eqType === v ? "selected" : ""}>${l}</option>`).join("");
     equipControls = ` <select class="equip-select" title="Equipment type for this exercise">${typeOpts}</select>`;
@@ -1825,7 +1953,69 @@ function renderExerciseCard(session, participant, exercise, isActive) {
 
   wireSetRowHandlers(wrap, exercise);
 
-  if (isActive) {
+  if (cardio) {
+    const durInput = wrap.querySelector(".cardio-input-duration");
+    const distInput = wrap.querySelector(".cardio-input-distance");
+    const preview = wrap.querySelector(".cardio-preview");
+    const updatePreview = () => {
+      const sec = parseDuration(durInput.value);
+      const km = unitToKm(parseFloat(distInput.value));
+      preview.textContent = sec && km > 0 ? `Avg speed: ${speedText(km, sec)}` : "";
+    };
+    const addEntry = () => {
+      const durationSec = parseDuration(durInput.value);
+      const distanceKm = unitToKm(parseFloat(distInput.value));
+      if (!durationSec || !(distanceKm > 0)) {
+        alert(`Enter a duration (e.g. 28:30) and a distance in ${state.distanceUnit}.`);
+        return;
+      }
+      exercise.sets.push({ id: uid(), durationSec, distanceKm });
+      save();
+      render();
+      const next = document.querySelector(`[data-exid="${exercise.id}"] .cardio-input-duration`);
+      if (next) next.focus();
+    };
+    [durInput, distInput].forEach(inp => {
+      inp.addEventListener("input", updatePreview);
+      inp.addEventListener("keydown", e => { if (e.key === "Enter") addEntry(); });
+    });
+    wrap.querySelector(".add-set-btn").addEventListener("click", addEntry);
+  }
+  if (cardio) {
+    const activitySelect = wrap.querySelector(".activity-select");
+    if (activitySelect) {
+      activitySelect.addEventListener("change", () => {
+        const prev = cardioActivity(exercise);
+        const next = CARDIO_ACTIVITIES.find(a => a.id === activitySelect.value) || prev;
+        exercise.equipment = { ...exercise.equipment, activity: next.id };
+        // Keep the name in step with the activity unless it was customised.
+        if (exercise.name === prev.label) exercise.name = next.label;
+        save();
+        render();
+      });
+    }
+    // Switching units converts any distance typed but not yet added.
+    wrap.querySelectorAll(".unit-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const unit = btn.getAttribute("data-unit");
+        if (unit === state.distanceUnit) return;
+        const dur = wrap.querySelector(".cardio-input-duration");
+        const dist = wrap.querySelector(".cardio-input-distance");
+        const typedKm = dist ? unitToKm(parseFloat(dist.value)) : NaN;
+        const typedDur = dur ? dur.value : "";
+        state.distanceUnit = unit;
+        saveUI();
+        render();
+        const cardEl = document.querySelector(`[data-exid="${exercise.id}"]`);
+        if (!cardEl) return;
+        const d = cardEl.querySelector(".cardio-input-duration");
+        const k = cardEl.querySelector(".cardio-input-distance");
+        if (d) d.value = typedDur;
+        if (k && typedKm > 0) k.value = Math.round(kmToUnit(typedKm) * 100) / 100;
+        if (k) k.dispatchEvent(new Event("input"));
+      });
+    });
+  } else if (isActive) {
     const repsInput = wrap.querySelector(".set-input-reps");
     const weightInput = wrap.querySelector(".set-input-weight");
     const rirInput = wrap.querySelector(".set-input-rir");
@@ -2037,13 +2227,40 @@ function renderSetRowHtml(s, i) {
   `;
 }
 
+function renderCardioRowHtml(s, i) {
+  if (state.editingSetId === s.id) {
+    return `
+      <div class="set-row editing" data-set-id="${s.id}">
+        <span class="set-num">${i + 1}.</span>
+        <div class="set-edit-form cardio">
+          <input type="text" class="edit-duration" value="${formatDuration(s.durationSec)}" placeholder="mm:ss" title="h:mm:ss, mm:ss, or minutes" />
+          <input type="number" class="edit-distance" min="0" step="0.01" value="${Math.round(kmToUnit(s.distanceKm) * 100) / 100}" placeholder="${state.distanceUnit}" />
+          <button class="save-edit" data-save-set="${s.id}">Save</button>
+          <button class="secondary cancel-edit">Cancel</button>
+        </div>
+      </div>
+    `;
+  }
+  return `
+    <div class="set-row" data-set-id="${s.id}">
+      <span class="set-num">${i + 1}.</span>
+      <button class="set-summary-btn" data-edit-set="${s.id}" title="Click to edit">
+        ${fmtDist(Number(s.distanceKm) || 0)} in ${formatDuration(Number(s.durationSec) || 0)}
+        <span class="rir-tag">${speedText(Number(s.distanceKm), Number(s.durationSec))}</span>
+      </button>
+      <button class="danger small" data-del-set="${s.id}" title="Remove">×</button>
+    </div>
+  `;
+}
+
 function wireSetRowHandlers(wrap, exercise) {
+  const cardio = isCardio(exercise);
   wrap.querySelectorAll("button[data-edit-set]").forEach(btn => {
     btn.addEventListener("click", () => {
       state.editingSetId = btn.getAttribute("data-edit-set");
       render();
       const form = document.querySelector(`.set-row.editing[data-set-id="${state.editingSetId}"]`);
-      if (form) form.querySelector(".edit-reps").focus();
+      if (form) form.querySelector(cardio ? ".edit-duration" : ".edit-reps").focus();
     });
   });
 
@@ -2063,17 +2280,28 @@ function wireSetRowHandlers(wrap, exercise) {
       const id = btn.getAttribute("data-save-set");
       const set = exercise.sets.find(s => s.id === id);
       if (!set) return;
-      const reps = parseInt(row.querySelector(".edit-reps").value, 10);
-      const weight = parseFloat(row.querySelector(".edit-weight").value);
-      const rirRaw = row.querySelector(".edit-rir").value;
-      if (!reps || isNaN(weight)) {
-        alert("Enter reps and weight.");
-        return;
+      if (cardio) {
+        const durationSec = parseDuration(row.querySelector(".edit-duration").value);
+        const distanceKm = unitToKm(parseFloat(row.querySelector(".edit-distance").value));
+        if (!durationSec || !(distanceKm > 0)) {
+          alert(`Enter a duration (e.g. 28:30) and a distance in ${state.distanceUnit}.`);
+          return;
+        }
+        set.durationSec = durationSec;
+        set.distanceKm = distanceKm;
+      } else {
+        const reps = parseInt(row.querySelector(".edit-reps").value, 10);
+        const weight = parseFloat(row.querySelector(".edit-weight").value);
+        const rirRaw = row.querySelector(".edit-rir").value;
+        if (!reps || isNaN(weight)) {
+          alert("Enter reps and weight.");
+          return;
+        }
+        set.reps = reps;
+        set.weight = weight;
+        if (rirRaw === "") delete set.rir;
+        else if (!isNaN(parseInt(rirRaw, 10))) set.rir = parseInt(rirRaw, 10);
       }
-      set.reps = reps;
-      set.weight = weight;
-      if (rirRaw === "") delete set.rir;
-      else if (!isNaN(parseInt(rirRaw, 10))) set.rir = parseInt(rirRaw, 10);
       state.editingSetId = null;
       state.editingExerciseId = null;
       state.editingParticipantId = null;
@@ -2138,7 +2366,9 @@ function renderHistory() {
             : p.exercises.map(ex => `
                 <div class="history-exercise compact">
                   <span class="exercise-title">${escapeHtml(ex.name)}${prHtml(ex.name, p.name)}</span>
-                  <span class="muted-tag">${fmt(exerciseVolume(ex))} kg</span>
+                  <span class="muted-tag">${isCardio(ex)
+                    ? (t => cardioSummary(t.distanceKm, t.durationSec))(cardioTotals(ex))
+                    : `${fmt(exerciseVolume(ex))} kg`}</span>
                 </div>
               `).join("")}
         </div>
