@@ -3,6 +3,15 @@ const UI_STATE_KEY = "gym-tracker-ui";
 const INVENTORY_KEY = "gym-tracker-inventory";
 const TARGETS_KEY = "gym-tracker-targets";
 
+// Power and mini bands share these colours/strengths, lightest to heaviest.
+const LOOP_BAND_STRENGTHS = [
+  ["yellow", "Extra small"],
+  ["red", "Small"],
+  ["black", "Large 1"],
+  ["purple", "Large 2"],
+  ["green", "Extra large"],
+];
+
 const DEFAULT_INVENTORY = {
   bars: [
     { id: "bar-mens", name: "Men's bar", kg: 20 },
@@ -22,6 +31,15 @@ const DEFAULT_INVENTORY = {
   kettlebells: [4, 6, 8, 10, 12, 16, 20].map(kg => ({ kg, count: 1 })),
   accessories: [
     { id: "acc-landmine", name: "Landmine attachment", count: 1 },
+  ],
+  // Lightest to heaviest within each type.
+  bands: [
+    ...LOOP_BAND_STRENGTHS.map(([colour, strength]) =>
+      ({ id: `band-power-${colour}`, type: "Power band", colour, strength, count: 1 })),
+    ...LOOP_BAND_STRENGTHS.map(([colour, strength]) =>
+      ({ id: `band-mini-${colour}`, type: "Mini band", colour, strength, count: 1 })),
+    { id: "band-flat-blue", type: "Flat band", colour: "blue", strength: "Light", count: 1 },
+    { id: "band-flat-purple", type: "Flat band", colour: "purple", strength: "Heavy", count: 1 },
   ],
 };
 const WEIGHT_TOOLTIP = "Enter the total weight (bar + all plates combined)";
@@ -132,7 +150,7 @@ function loadInventory() {
         }
         // Add dumbbell/kettlebell/accessory lists to inventories saved before they existed.
         let added = false;
-        ["dumbbells", "kettlebells", "accessories"].forEach(key => {
+        ["dumbbells", "kettlebells", "accessories", "bands"].forEach(key => {
           if (!Array.isArray(inv[key])) {
             inv[key] = JSON.parse(JSON.stringify(DEFAULT_INVENTORY[key]));
             added = true;
@@ -417,6 +435,47 @@ function getPlates() {
     .map(([kg, pairs]) => ({ kg, pairs }))
     .sort((a, b) => b.kg - a.kg);
 }
+// Resistance bands from the inventory. Band sets store bandIds (one or two
+// bands) plus a `band` label snapshot, so they still read sensibly if a band is
+// later removed. Older sets have a single bandId.
+function getBands() {
+  return (state.plateInventory.bands || []).filter(b => b && (b.type || b.colour));
+}
+function bandLabel(b) {
+  return [b.type, b.colour].filter(Boolean).join(" · ");
+}
+function setBandIds(s) {
+  if (!s) return [];
+  return Array.isArray(s.bandIds) ? s.bandIds : (s.bandId ? [s.bandId] : []);
+}
+function setBandLabel(s) {
+  const bands = setBandIds(s).map(id => getBands().find(x => x.id === id));
+  return bands.length && bands.every(Boolean) ? bands.map(bandLabel).join(" + ") : (s.band || "Band");
+}
+// Two pickers: the band, plus an optional second band for exercises that combine them.
+function bandPickerHtml(cls, ids) {
+  return `<select class="${cls}" title="Which band you used">${bandOptionsHtml(ids[0])}</select>`
+    + `<select class="${cls}" title="Second band, if you used two"><option value="">+ 2nd band: none</option>${getBands().length ? bandOptionsHtml(ids[1]) : ""}</select>`;
+}
+// Bands chosen in a picker, in order, skipping "none".
+function readBandPicker(root, cls) {
+  return [...root.querySelectorAll(`.${cls}`)]
+    .map(sel => getBands().find(b => b.id === sel.value))
+    .filter(Boolean);
+}
+function applyBands(set, bands) {
+  delete set.bandId;
+  set.bandIds = bands.map(b => b.id);
+  set.band = bands.map(bandLabel).join(" + ");
+}
+function bandOptionsHtml(selectedId) {
+  const bands = getBands();
+  if (!bands.length) return `<option value="">No bands — add them under Plates &amp; bars</option>`;
+  return bands.map(b =>
+    `<option value="${b.id}" ${b.id === selectedId ? "selected" : ""}>${escapeHtml(bandLabel(b))}${b.strength ? ` (${escapeHtml(b.strength)})` : ""}</option>`
+  ).join("");
+}
+
 function getBars() {
   return (state.plateInventory.bars || []).filter(b => b && Number(b.kg) > 0);
 }
@@ -517,7 +576,7 @@ function getPR(exerciseName, personName) {
       });
     });
   }));
-  return best ? { weight: max, reps: best.reps } : null;
+  return best && max > 0 ? { weight: max, reps: best.reps } : null;
 }
 
 function prHtml(exerciseName, personName) {
@@ -657,7 +716,7 @@ function render() {
   container.classList.toggle("wide", !!shown && shown.participants.length > 1);
   // Side-by-side session + best-lookup layout (takes effect on wide screens).
   container.classList.toggle("has-session", !!shown);
-  document.getElementById("history-heading").style.display = viewing ? "none" : "";
+  document.getElementById("history-section").style.display = viewing ? "none" : "";
   renderDatalists();
   renderStart();
   renderSession();
@@ -702,7 +761,8 @@ function exportAllData() {
 }
 
 // Apply an imported plateInventory. Replace swaps in every list the file has;
-// merge matches bars/accessories by id (then name) and plates/dumbbells/kettlebells by kg,
+// merge matches bars/accessories by id (then name), bands by id (then type + colour)
+// and plates/dumbbells/kettlebells by kg,
 // letting the file's values win. Lists missing from the file are left as-is.
 function importInventory(imported, replace) {
   if (!imported || typeof imported !== "object") return;
@@ -723,6 +783,19 @@ function importInventory(imported, replace) {
       else inv[key].push(b);
     });
   });
+  if (Array.isArray(imported.bands)) {
+    const bands = copy(imported.bands).map(b => ({ ...b, id: b.id || uid() }));
+    if (replace || !Array.isArray(inv.bands)) {
+      inv.bands = bands;
+    } else {
+      const bandKey = b => `${(b.type || "").trim().toLowerCase()}|${(b.colour || "").trim().toLowerCase()}`;
+      bands.forEach(b => {
+        const idx = inv.bands.findIndex(x => x.id === b.id || bandKey(x) === bandKey(b));
+        if (idx >= 0) inv.bands[idx] = { ...b, id: inv.bands[idx].id };
+        else inv.bands.push(b);
+      });
+    }
+  }
   ["plates", "dumbbells", "kettlebells"].forEach(key => {
     if (!Array.isArray(imported[key])) return;
     const items = copy(imported[key]);
@@ -919,6 +992,18 @@ function renderPlateEditor() {
     </div>
   `).join("");
 
+  if (!Array.isArray(inv.bands)) inv.bands = [];
+  const bandRowsHtml = inv.bands.map((b, i) => `
+    <div class="inv-band-row" data-bandidx="${i}">
+      <input type="text" class="inv-band-type" value="${escapeHtml(b.type || "")}" placeholder="e.g. Power band" list="band-types" />
+      <input type="text" class="inv-band-colour" value="${escapeHtml(b.colour || "")}" placeholder="Colour" />
+      <input type="text" class="inv-band-strength" value="${escapeHtml(b.strength || "")}" placeholder="e.g. Light" />
+      <input type="number" class="inv-band-count" step="1" min="0" value="${b.count}" />
+      <button class="danger small inv-band-remove" title="Remove this band">×</button>
+    </div>
+  `).join("");
+  const bandTypes = [...new Set(inv.bands.map(b => (b.type || "").trim()).filter(Boolean))];
+
   card.innerHTML = `
     <h2 class="card-collapsible collapsible-head" data-collapse="plateEditor">${caretHtml("plateEditor")} Plates &amp; bars</h2>
     <div class="inv-bars ${collapsibleClass("inv-bars")}">
@@ -953,6 +1038,19 @@ function renderPlateEditor() {
       </div>
       <div class="inv-acc-rows">${accRowsHtml}</div>
       <button class="inv-add inv-acc-add">+ Add accessory</button>
+    </div>
+    <div class="inv-bands ${collapsibleClass("inv-bands")}">
+      ${subHead("inv-bands", "Resistance bands (lightest to heaviest within each type)")}
+      <div class="inv-bands-header">
+        <span>Type</span>
+        <span>Colour</span>
+        <span>Strength</span>
+        <span>Count</span>
+        <span></span>
+      </div>
+      <div class="inv-band-rows">${bandRowsHtml}</div>
+      <datalist id="band-types">${bandTypes.map(t => `<option value="${escapeHtml(t)}"></option>`).join("")}</datalist>
+      <button class="inv-add inv-band-add">+ Add band</button>
     </div>
   `;
   root.appendChild(card);
@@ -1004,7 +1102,7 @@ function renderPlateEditor() {
     });
   });
 
-  card.querySelector(".inv-add:not(.inv-gear-add):not(.inv-acc-add)").addEventListener("click", () => {
+  card.querySelector(".inv-add:not(.inv-gear-add):not(.inv-acc-add):not(.inv-band-add)").addEventListener("click", () => {
     inv.plates.push({ kg: 0, count: 0 });
     saveInventory();
     render();
@@ -1067,6 +1165,37 @@ function renderPlateEditor() {
     const rows = document.querySelectorAll("#plate-editor .inv-acc-row");
     const last = rows[rows.length - 1];
     if (last) last.querySelector(".inv-acc-name").focus();
+  });
+
+  card.querySelectorAll(".inv-band-row").forEach(row => {
+    const i = parseInt(row.getAttribute("data-bandidx"), 10);
+    const typeInput = row.querySelector(".inv-band-type");
+    const colourInput = row.querySelector(".inv-band-colour");
+    const strengthInput = row.querySelector(".inv-band-strength");
+    const countInput = row.querySelector(".inv-band-count");
+    const update = () => {
+      inv.bands[i].type = typeInput.value;
+      inv.bands[i].colour = colourInput.value;
+      inv.bands[i].strength = strengthInput.value;
+      inv.bands[i].count = parseInt(countInput.value, 10) || 0;
+      saveInventory();
+    };
+    [typeInput, colourInput, strengthInput, countInput].forEach(inp => inp.addEventListener("input", update));
+    row.querySelector(".inv-band-remove").addEventListener("click", () => {
+      inv.bands.splice(i, 1);
+      saveInventory();
+      render();
+    });
+  });
+  card.querySelector(".inv-band-add").addEventListener("click", () => {
+    // Pre-fill the type from the last row so adding to a set is quick.
+    const lastBand = inv.bands[inv.bands.length - 1];
+    inv.bands.push({ id: uid(), type: lastBand ? lastBand.type : "", colour: "", strength: "", count: 1 });
+    saveInventory();
+    render();
+    const rows = document.querySelectorAll("#plate-editor .inv-band-row");
+    const last = rows[rows.length - 1];
+    if (last) last.querySelector(".inv-band-colour").focus();
   });
 }
 
@@ -1811,11 +1940,13 @@ function renderExerciseCard(session, participant, exercise, isActive) {
   const lastSet = exercise.sets[exercise.sets.length - 1];
   const defReps = lastSet ? lastSet.reps : "";
   const defWeight = lastSet ? lastSet.weight : "";
+  const band = eqType === "band";
+  const defBandIds = lastSet && setBandIds(lastSet).length ? setBandIds(lastSet) : setBandIds(eq);
   const defRir = lastSet && lastSet.rir != null ? lastSet.rir : "";
 
   const setsListHtml = exercise.sets.length === 0
     ? `<div class="empty small">${cardio ? "Nothing logged" : "No sets"}${isActive || cardio ? " yet" : ""}.</div>`
-    : exercise.sets.map((s, i) => cardio ? renderCardioRowHtml(s, i) : renderSetRowHtml(s, i)).join("");
+    : exercise.sets.map((s, i) => cardio ? renderCardioRowHtml(s, i) : renderSetRowHtml(s, i, exercise)).join("");
 
   let totalHtml = "";
   if (cardio) {
@@ -1848,10 +1979,15 @@ function renderExerciseCard(session, participant, exercise, isActive) {
         <label>Reps</label>
         <input type="number" class="set-input-reps" min="1" value="${defReps}" />
       </div>
+      ${band ? `
+      <div class="band-picker">
+        <label>Band</label>
+        ${bandPickerHtml("set-input-band", defBandIds)}
+      </div>` : `
       <div>
         <label title="${weightTip}">${weightLabel}</label>
         <input type="number" class="set-input-weight" min="0" step="0.5" value="${defWeight}" title="${weightTip}" />
-      </div>
+      </div>`}
       <div>
         <label title="${RIR_TOOLTIP}">RIR</label>
         <input type="number" class="set-input-rir" min="0" max="10" value="${defRir}" title="${RIR_TOOLTIP}" placeholder="opt." />
@@ -2022,14 +2158,22 @@ function renderExerciseCard(session, participant, exercise, isActive) {
 
     const addSet = () => {
       const reps = parseInt(repsInput.value, 10);
-      let weight = parseFloat(weightInput.value);
-      if (isNaN(weight) && (eqType === "band" || eqType === "bodyweight")) weight = 0;
+      let weight = weightInput ? parseFloat(weightInput.value) : 0;
+      if (isNaN(weight) && eqType === "bodyweight") weight = 0;
       const rirRaw = rirInput.value;
       if (!reps || isNaN(weight)) {
-        alert("Enter reps and weight.");
+        alert(band ? "Enter reps." : "Enter reps and weight.");
         return;
       }
       const set = { id: uid(), reps, weight };
+      if (band) {
+        const bands = readBandPicker(wrap, "set-input-band");
+        if (bands.length) {
+          applyBands(set, bands);
+          const { bandId, ...rest } = eq;
+          exercise.equipment = { ...rest, type: "band", bandIds: set.bandIds }; // default for next time
+        }
+      }
       if (rirRaw !== "" && !isNaN(parseInt(rirRaw, 10))) set.rir = parseInt(rirRaw, 10);
       exercise.sets.push(set);
       save();
@@ -2039,12 +2183,12 @@ function renderExerciseCard(session, participant, exercise, isActive) {
       if (next) next.focus();
     };
     wrap.querySelector(".add-set-btn").addEventListener("click", addSet);
-    [repsInput, weightInput, rirInput].forEach(inp => {
+    [repsInput, weightInput, rirInput].filter(Boolean).forEach(inp => {
       inp.addEventListener("keydown", e => { if (e.key === "Enter") addSet(); });
     });
 
     // Live plate hint while typing the weight
-    weightInput.addEventListener("input", () => {
+    if (weightInput) weightInput.addEventListener("input", () => {
       const hintRoot = wrap.querySelector(".plates-hint-root");
       if (!hintRoot) return;
       const w = parseFloat(weightInput.value);
@@ -2200,7 +2344,8 @@ function renderExerciseCard(session, participant, exercise, isActive) {
 
 // ---------- Set row (display + edit) ----------
 
-function renderSetRowHtml(s, i) {
+function renderSetRowHtml(s, i, exercise) {
+  const band = !!(exercise && exercise.equipment && exercise.equipment.type === "band");
   if (state.editingSetId === s.id) {
     const rirVal = s.rir != null ? s.rir : "";
     return `
@@ -2208,7 +2353,9 @@ function renderSetRowHtml(s, i) {
         <span class="set-num">${i + 1}.</span>
         <div class="set-edit-form">
           <input type="number" class="edit-reps" min="1" value="${s.reps}" placeholder="reps" />
-          <input type="number" class="edit-weight" min="0" step="0.5" value="${s.weight}" placeholder="kg" title="${WEIGHT_TOOLTIP}" />
+          ${band
+            ? `<div class="band-picker">${bandPickerHtml("edit-band", setBandIds(s))}</div>`
+            : `<input type="number" class="edit-weight" min="0" step="0.5" value="${s.weight}" placeholder="kg" title="${WEIGHT_TOOLTIP}" />`}
           <input type="number" class="edit-rir" min="0" max="10" value="${rirVal}" placeholder="RIR" title="${RIR_TOOLTIP}" />
           <button class="save-edit" data-save-set="${s.id}">Save</button>
           <button class="secondary cancel-edit">Cancel</button>
@@ -2220,7 +2367,7 @@ function renderSetRowHtml(s, i) {
     <div class="set-row" data-set-id="${s.id}">
       <span class="set-num">${i + 1}.</span>
       <button class="set-summary-btn" data-edit-set="${s.id}" title="Click to edit">
-        ${s.reps} × ${s.weight} kg${s.rir != null && s.rir !== "" ? ` <span class="rir-tag">RIR ${s.rir}</span>` : ""}
+        ${s.reps} × ${band || setBandIds(s).length ? escapeHtml(setBandLabel(s)) : `${s.weight} kg`}${s.rir != null && s.rir !== "" ? ` <span class="rir-tag">RIR ${s.rir}</span>` : ""}
       </button>
       <button class="danger small" data-del-set="${s.id}" title="Remove set">×</button>
     </div>
@@ -2291,14 +2438,19 @@ function wireSetRowHandlers(wrap, exercise) {
         set.distanceKm = distanceKm;
       } else {
         const reps = parseInt(row.querySelector(".edit-reps").value, 10);
-        const weight = parseFloat(row.querySelector(".edit-weight").value);
+        const bandSelect = row.querySelector(".edit-band");
+        const weight = bandSelect ? 0 : parseFloat(row.querySelector(".edit-weight").value);
         const rirRaw = row.querySelector(".edit-rir").value;
         if (!reps || isNaN(weight)) {
-          alert("Enter reps and weight.");
+          alert(bandSelect ? "Enter reps." : "Enter reps and weight.");
           return;
         }
         set.reps = reps;
         set.weight = weight;
+        if (bandSelect) {
+          const bands = readBandPicker(row, "edit-band");
+          if (bands.length) applyBands(set, bands);
+        }
         if (rirRaw === "") delete set.rir;
         else if (!isNaN(parseInt(rirRaw, 10))) set.rir = parseInt(rirRaw, 10);
       }
@@ -2312,7 +2464,7 @@ function wireSetRowHandlers(wrap, exercise) {
       render();
     };
     btn.addEventListener("click", saveFn);
-    row.querySelectorAll("input").forEach(inp => {
+    row.querySelectorAll("input, select").forEach(inp => {
       inp.addEventListener("keydown", e => {
         if (e.key === "Enter") saveFn();
         if (e.key === "Escape") { state.editingSetId = null; render(); }
@@ -2334,7 +2486,7 @@ function renderHistory() {
   const root = document.getElementById("history");
   root.innerHTML = "";
   const section = document.getElementById("history-section");
-  section.className = collapsibleClass("history");
+  section.className = `card ${collapsibleClass("history")}`;
   section.querySelector(".collapse-caret").textContent = isCollapsed("history") ? "▸" : "▾";
   if (getViewingSession()) return;
 
@@ -2368,7 +2520,9 @@ function renderHistory() {
                   <span class="exercise-title">${escapeHtml(ex.name)}${prHtml(ex.name, p.name)}</span>
                   <span class="muted-tag">${isCardio(ex)
                     ? (t => cardioSummary(t.distanceKm, t.durationSec))(cardioTotals(ex))
-                    : `${fmt(exerciseVolume(ex))} kg`}</span>
+                    : exerciseVolume(ex) > 0
+                      ? `${fmt(exerciseVolume(ex))} kg`
+                      : `${ex.sets.length} set${ex.sets.length === 1 ? "" : "s"}`}</span>
                 </div>
               `).join("")}
         </div>

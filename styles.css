@@ -1,8 +1,8 @@
 :root {
   --bg: #0f1115;
   --panel: #181b22;
-  --panel-2: #20242d;
-  --border: #2a2f3a;
+  --panel-2: #262b36;
+  --border: #3a4150;
   --text: #e6e8ee;
   --muted: #8a93a6;
   --accent: #4f8cff;
@@ -348,10 +348,19 @@ button.icon {
   gap: 4px;
   align-items: center;
 }
-.set-edit-form input {
+.set-edit-form input,
+.set-edit-form select {
   padding: 4px 6px;
   font-size: 12px;
 }
+/* Band + optional second band, stacked */
+.band-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.band-picker select { min-width: 0; width: 100%; }
 .set-edit-form button {
   padding: 4px 8px;
   font-size: 12px;
@@ -477,6 +486,9 @@ button.icon {
   display: none !important;
 }
 .card > h2.collapsible-head { margin-top: 0; }
+/* Past sessions sit inside the History card, so set them apart from it. */
+#history .card { background: var(--panel-2); }
+#history .card:last-child { margin-bottom: 0; }
 .card.collapsed > h2.collapsible-head,
 .collapsible.collapsed > label.collapsible-head { margin-bottom: 0; }
 .collapse-caret[data-collapse] {
@@ -1008,6 +1020,30 @@ button.icon {
 .inv-gear { margin-top: 20px; }
 .inv-acc { margin-top: 20px; }
 .inv-acc > label { display: block; margin-bottom: 8px; }
+.inv-bands { margin-top: 20px; }
+.inv-bands > label { display: block; margin-bottom: 8px; }
+.inv-bands-header,
+.inv-band-row {
+  display: grid;
+  grid-template-columns: 1.3fr 1fr 1fr 0.6fr 32px;
+  gap: 8px;
+  align-items: center;
+}
+.inv-bands-header {
+  font-size: 10px;
+  text-transform: uppercase;
+  color: var(--muted);
+  letter-spacing: 0.05em;
+  padding: 0 4px 4px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 6px;
+}
+.inv-band-row { margin-bottom: 4px; }
+.inv-band-row input {
+  padding: 6px 8px;
+  font-size: 13px;
+  min-width: 0;
+}
 .inv-gear > label { display: block; margin-bottom: 8px; }
 .inv-gear-header {
   display: grid;
