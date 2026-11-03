@@ -58,10 +58,12 @@ const state = {
   helperWeight: null,
   distanceUnit: "km", // "km" or "mi" — display/entry unit for cardio; data is always stored in km
   bestLookup: { personName: "", exerciseName: "" },
+  historyFilter: { person: "", exercise: "" }, // "" = all
   targets: [],
   editingTargetKey: null,
   plateInventory: JSON.parse(JSON.stringify(DEFAULT_INVENTORY)),
-  uiCollapsed: { prHelper: false, plateEditor: true, targetsOverview: false },
+  uiCollapsed: { prHelper: false, plateEditor: true, targetsOverview: false, exerciseList: true },
+  exerciseSearch: "",
   setup: { date: todayISO(), count: null, names: [] },
 };
 
@@ -724,6 +726,7 @@ function render() {
   renderTargetsOverview();
   renderPRHelper();
   renderPlateEditor();
+  renderExerciseList();
   renderDataTools();
   renderHistory();
 }
@@ -887,6 +890,109 @@ function importAllData(file) {
   };
   reader.onerror = () => alert("Couldn't read that file.");
   reader.readAsText(file);
+}
+
+// ---------- Exercise list ----------
+// Every exercise ever logged, with how often, when last, and each person's best.
+
+const EQUIPMENT_LABELS = { weight: "Weight", barbell: "Barbell", dumbbell: "Dumbbell", band: "Band", bodyweight: "Bodyweight", cardio: "Cardio" };
+
+function collectExercises() {
+  const byKey = new Map();
+  state.sessions.forEach(s => s.participants.forEach(p => p.exercises.forEach(ex => {
+    const name = (ex.name || "").trim();
+    if (!name) return;
+    const key = name.toLowerCase();
+    let e = byKey.get(key);
+    if (!e) {
+      e = { name, date: "", ex, count: 0, people: new Map() };
+      byKey.set(key, e);
+    }
+    e.count++;
+    // The most recent use decides the displayed name and type.
+    if ((s.date || "") >= e.date) { e.date = s.date || ""; e.name = name; e.ex = ex; }
+    const person = (p.name || "").trim();
+    if (person) e.people.set(person.toLowerCase(), person);
+  })));
+  return [...byKey.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function exerciseTypeLabel(ex) {
+  const type = (ex.equipment && ex.equipment.type) || "weight";
+  if (type === "cardio") return `Cardio · ${cardioActivity(ex).label}`;
+  return EQUIPMENT_LABELS[type] || type;
+}
+
+// Per-person best: heaviest weight, or longest distance for cardio.
+function exerciseBestHtml(e) {
+  const people = [...e.people.values()].sort((a, b) => a.localeCompare(b));
+  const parts = people.map(person => {
+    if (isCardio(e.ex)) {
+      let km = 0;
+      state.sessions.forEach(s => s.participants.forEach(p => {
+        if ((p.name || "").trim().toLowerCase() !== person.toLowerCase()) return;
+        p.exercises.forEach(ex => {
+          if ((ex.name || "").trim().toLowerCase() !== e.name.toLowerCase()) return;
+          ex.sets.forEach(set => { km = Math.max(km, Number(set.distanceKm) || 0); });
+        });
+      }));
+      return km > 0 ? `${escapeHtml(person)} ${fmtDist(km)}` : null;
+    }
+    const pr = getPR(e.name, person);
+    return pr ? `${escapeHtml(person)} ${pr.weight} kg` : null;
+  }).filter(Boolean);
+  return parts.length ? parts.join("<br>") : `<span class="muted-tag">—</span>`;
+}
+
+function renderExerciseList() {
+  const root = document.getElementById("exercise-list");
+  root.innerHTML = "";
+  if (getCurrentSession() || getViewingSession()) return;
+
+  const all = collectExercises();
+  const card = document.createElement("div");
+  card.className = `card ${collapsibleClass("exerciseList")}`;
+  card.innerHTML = `
+    <h2 class="card-collapsible collapsible-head" data-collapse="exerciseList">${caretHtml("exerciseList")} Exercises <span class="muted-tag">· ${all.length}</span></h2>
+    ${all.length ? `
+    <input type="search" class="exercise-search" placeholder="Search exercises…" value="${escapeHtml(state.exerciseSearch)}" autocomplete="off" />
+    <div class="exercise-list-head">
+      <span>Exercise</span><span>Type</span><span>Done</span><span>Last</span><span>Best</span>
+    </div>
+    <div class="exercise-list-rows"></div>` : `<div class="empty">No exercises logged yet.</div>`}
+  `;
+  root.appendChild(card);
+  if (!all.length) return;
+
+  const rows = card.querySelector(".exercise-list-rows");
+  const fill = () => {
+    const term = state.exerciseSearch.trim().toLowerCase();
+    const shown = all.filter(e => !term || e.name.toLowerCase().includes(term));
+    rows.innerHTML = shown.length ? shown.map(e => `
+      <div class="exercise-list-row">
+        <button class="exercise-list-name" data-ex-filter="${escapeHtml(e.name)}" title="Show this exercise in History">${escapeHtml(e.name)}</button>
+        <span class="exercise-list-type">${escapeHtml(exerciseTypeLabel(e.ex))}</span>
+        <span title="Times logged">${e.count}×</span>
+        <span>${e.date ? formatDate(e.date) : ""}</span>
+        <span class="exercise-list-best">${exerciseBestHtml(e)}</span>
+      </div>
+    `).join("") : `<div class="empty small">No exercises match “${escapeHtml(state.exerciseSearch)}”.</div>`;
+    rows.querySelectorAll("[data-ex-filter]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        state.historyFilter = { person: "", exercise: btn.getAttribute("data-ex-filter") };
+        state.uiCollapsed.history = false;
+        saveUI();
+        render();
+        document.getElementById("history-section").scrollIntoView({ behavior: "smooth" });
+      });
+    });
+  };
+  fill();
+  // Only the rows re-render while typing, so the search box keeps focus.
+  card.querySelector(".exercise-search").addEventListener("input", e => {
+    state.exerciseSearch = e.target.value;
+    fill();
+  });
 }
 
 function renderDataTools() {
@@ -1677,6 +1783,11 @@ function startSession() {
   const participants = [];
   for (let i = 0; i < s.count; i++) {
     const name = (s.names[i] || "").trim() || `Person ${i + 1}`;
+    const dup = participants.find(p => p.name.toLowerCase() === name.toLowerCase());
+    if (dup) {
+      alert(`${dup.name} is entered more than once. Each person can only be in a session once.`);
+      return;
+    }
     participants.push({ id: uid(), name, exercises: [] });
   }
   const session = { id: uid(), date: s.date || todayISO(), participants };
@@ -1724,6 +1835,11 @@ function renderSession() {
       ${rightBtn}
     </div>
     <div class="workout-grid" style="--cols:${session.participants.length}"></div>
+    ${isActive ? `
+    <div class="add-person-row">
+      <input type="text" class="add-person-name" placeholder="Someone joined? Add their name" list="known-names" autocomplete="off" />
+      <button class="secondary add-person-btn">+ Add person</button>
+    </div>` : ""}
   `;
   root.appendChild(card);
 
@@ -1731,6 +1847,24 @@ function renderSession() {
   session.participants.forEach(p => grid.appendChild(renderParticipantColumn(session, p, isActive)));
 
   if (isActive) {
+    const personInput = card.querySelector(".add-person-name");
+    const addPerson = () => {
+      const name = personInput.value.trim() || `Person ${session.participants.length + 1}`;
+      const existing = session.participants.find(p => p.name.trim().toLowerCase() === name.toLowerCase());
+      if (existing) {
+        alert(`${existing.name} is already in this session.`);
+        return;
+      }
+      const p = { id: uid(), name, exercises: [] };
+      session.participants.push(p);
+      save();
+      render();
+      const input = document.querySelector(`[data-pid="${p.id}"] .new-ex-name`);
+      if (input) input.focus();
+    };
+    card.querySelector(".add-person-btn").addEventListener("click", addPerson);
+    personInput.addEventListener("keydown", e => { if (e.key === "Enter") addPerson(); });
+
     card.querySelector("#finish-session").addEventListener("click", () => {
       state.currentId = null;
       state.editingSetId = null;
@@ -1899,7 +2033,20 @@ function renderParticipantColumn(session, participant, isActive) {
     const commit = () => {
       const newName = renameInput.value.trim();
       if (!newName) { state.editingParticipantId = null; render(); return; }
-      if (newName !== participant.name) {
+      const others = session.participants.filter(p => p.id !== participant.id);
+      const sameName = (a, b) => (a || "").trim().toLowerCase() === (b || "").trim().toLowerCase();
+      const clash = others.find(p => sameName(p.name, newName));
+      if (clash) {
+        alert(`${clash.name} is already in this session.`);
+        renameInput.focus();
+        return;
+      }
+      if (others.some(p => sameName(p.name, participant.name))) {
+        // This name is duplicated in the session, so a rename-everywhere would
+        // hit both columns. Rename just this one.
+        participant.name = newName;
+        save();
+      } else if (newName !== participant.name) {
         renameParticipant(participant.name, newName);
       }
       state.editingParticipantId = null;
@@ -2495,19 +2642,37 @@ function renderHistory() {
     .slice()
     .sort((a, b) => b.date.localeCompare(a.date));
 
+  renderHistoryFilters(past);
+
   if (past.length === 0) {
     root.innerHTML = `<div class="empty">No past sessions yet.</div>`;
     return;
   }
 
-  past.forEach(session => {
+  // Narrow each session to the chosen person/exercise; drop sessions with nothing left.
+  const { person, exercise } = state.historyFilter;
+  const norm = v => (v || "").trim().toLowerCase();
+  const shown = past.map(session => ({
+    session,
+    participants: session.participants
+      .filter(p => !person || norm(p.name) === norm(person))
+      .map(p => ({ ...p, exercises: p.exercises.filter(ex => !exercise || norm(ex.name) === norm(exercise)) }))
+      .filter(p => !exercise || p.exercises.length > 0),
+  })).filter(x => x.participants.length > 0);
+
+  if (shown.length === 0) {
+    root.innerHTML = `<div class="empty">No sessions match these filters.</div>`;
+    return;
+  }
+
+  shown.forEach(({ session, participants }) => {
     const card = document.createElement("div");
     const hKey = `h:${session.id}`;
     card.className = `card ${collapsibleClass(hKey)}`;
 
-    const sessionTotal = session.participants.reduce((sum, p) => sum + participantVolume(p), 0);
+    const sessionTotal = participants.reduce((sum, p) => sum + participantVolume(p), 0);
 
-    const body = session.participants.map(p => {
+    const body = participants.map(p => {
       const total = participantVolume(p);
       const totalTag = total > 0 ? ` <span class="muted-tag">· ${fmt(total)} kg total</span>` : "";
       return `
@@ -2535,7 +2700,7 @@ function renderHistory() {
 
     card.innerHTML = `
       <div class="session-header collapsible-head">
-        <div class="session-date">${caretToggleHtml(hKey)}${formatDate(session.date)} <span style="color:var(--muted);font-weight:400">· ${session.participants.length} ${session.participants.length === 1 ? "person" : "people"}</span>${sessionTotalTag}</div>
+        <div class="session-date">${caretToggleHtml(hKey)}${formatDate(session.date)} <span style="color:var(--muted);font-weight:400">· ${participants.length} ${participants.length === 1 ? "person" : "people"}</span>${sessionTotalTag}</div>
         <div style="display:flex;gap:8px">
           <button class="icon" data-open="${session.id}">Open</button>
           <button class="danger" data-del-session="${session.id}">Delete</button>
@@ -2568,6 +2733,55 @@ function renderHistory() {
       save();
       render();
     });
+  });
+}
+
+// Person + exercise dropdowns above the history list. Options come from past
+// sessions; the exercise list narrows to the chosen person.
+function renderHistoryFilters(past) {
+  const root = document.getElementById("history-filters");
+  const f = state.historyFilter;
+  const norm = v => (v || "").trim().toLowerCase();
+  const uniqueSorted = names => {
+    const seen = new Map();
+    names.forEach(n => { if (n && n.trim() && !seen.has(norm(n))) seen.set(norm(n), n.trim()); });
+    return [...seen.values()].sort((a, b) => a.localeCompare(b));
+  };
+  const people = past.flatMap(s => s.participants);
+  const personNames = uniqueSorted(people.map(p => p.name));
+  const exerciseNames = uniqueSorted(people
+    .filter(p => !f.person || norm(p.name) === norm(f.person))
+    .flatMap(p => p.exercises.map(ex => ex.name)));
+  // Keep a chosen value selectable even if it no longer appears in the list.
+  if (f.person && !personNames.some(n => norm(n) === norm(f.person))) personNames.unshift(f.person);
+  if (f.exercise && !exerciseNames.some(n => norm(n) === norm(f.exercise))) exerciseNames.unshift(f.exercise);
+  const opts = (names, selected, allLabel) => `<option value="">${allLabel}</option>` + names.map(n =>
+    `<option value="${escapeHtml(n)}" ${norm(n) === norm(selected) ? "selected" : ""}>${escapeHtml(n)}</option>`).join("");
+
+  root.innerHTML = past.length === 0 ? "" : `
+    <div>
+      <label>Person</label>
+      <select class="history-filter-person">${opts(personNames, f.person, "All people")}</select>
+    </div>
+    <div>
+      <label>Exercise</label>
+      <select class="history-filter-exercise">${opts(exerciseNames, f.exercise, "All exercises")}</select>
+    </div>
+    ${f.person || f.exercise ? `<button class="secondary history-filter-clear">Clear</button>` : ""}
+  `;
+  if (past.length === 0) return;
+  root.querySelector(".history-filter-person").addEventListener("change", e => {
+    state.historyFilter = { ...f, person: e.target.value };
+    renderHistory();
+  });
+  root.querySelector(".history-filter-exercise").addEventListener("change", e => {
+    state.historyFilter = { ...f, exercise: e.target.value };
+    renderHistory();
+  });
+  const clear = root.querySelector(".history-filter-clear");
+  if (clear) clear.addEventListener("click", () => {
+    state.historyFilter = { person: "", exercise: "" };
+    renderHistory();
   });
 }
 

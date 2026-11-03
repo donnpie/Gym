@@ -1241,3 +1241,70 @@ button.icon {
   padding: 32px 16px;
 }
 .empty.small { padding: 8px 0; font-size: 13px; }
+
+/* History filters */
+.history-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: end;
+  margin-bottom: 12px;
+}
+.history-filters:empty { display: none; }
+.history-filters > div { flex: 1 1 160px; min-width: 0; }
+.history-filters select { padding: 6px 8px; font-size: 13px; }
+.history-filters button { padding: 6px 12px; font-size: 13px; }
+
+/* Add a person to an active session */
+.add-person-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--border);
+}
+.add-person-row input { flex: 1; min-width: 0; padding: 6px 8px; font-size: 13px; }
+.add-person-row button { padding: 6px 12px; font-size: 13px; white-space: nowrap; }
+
+/* Exercise list */
+.exercise-search { margin-bottom: 10px; padding: 6px 8px; font-size: 13px; }
+.exercise-list-head,
+.exercise-list-row {
+  display: grid;
+  grid-template-columns: 1.6fr 0.9fr 0.5fr 1fr 1.3fr;
+  gap: 10px;
+  align-items: baseline;
+}
+.exercise-list-head {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  padding: 0 4px 4px;
+  border-bottom: 1px solid var(--border);
+}
+.exercise-list-row {
+  padding: 7px 4px;
+  font-size: 13px;
+  border-bottom: 1px solid var(--border);
+}
+.exercise-list-row:last-child { border-bottom: none; }
+.exercise-list-row > span { color: var(--muted); }
+.exercise-list-row > .exercise-list-best { color: var(--text); }
+.exercise-list-name {
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: var(--text);
+  font-weight: 600;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.exercise-list-name:hover { color: var(--accent); }
+@media (max-width: 760px) {
+  .exercise-list-head { display: none; }
+  .exercise-list-row { grid-template-columns: 1fr auto; row-gap: 2px; }
+  .exercise-list-name { grid-column: 1 / -1; }
+  .exercise-list-best { grid-column: 1 / -1; }
+}
