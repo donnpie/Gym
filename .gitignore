@@ -1,0 +1,12 @@
+# Python
+backend/.venv/
+__pycache__/
+.pytest_cache/
+
+# Local database (your data — back it up with Data → Export)
+backend/gym.db
+*.db-journal
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
