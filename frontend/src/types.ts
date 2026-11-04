@@ -1,6 +1,6 @@
 // Shapes returned by the FastAPI backend (see backend/app/schemas.py).
 
-export type EquipmentType = "weight" | "barbell" | "dumbbell" | "band" | "bodyweight" | "cardio";
+export type EquipmentType = "weight" | "barbell" | "plates" | "dumbbell" | "band" | "bodyweight" | "cardio";
 export type ExerciseKind = "strength" | "cardio";
 
 export interface Person {

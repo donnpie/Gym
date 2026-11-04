@@ -3,7 +3,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-Equipment = Literal["weight", "barbell", "dumbbell", "band", "bodyweight", "cardio"]
+Equipment = Literal["weight", "barbell", "plates", "dumbbell", "band", "bodyweight", "cardio"]
 
 
 class Orm(BaseModel):

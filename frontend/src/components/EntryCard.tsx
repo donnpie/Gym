@@ -9,7 +9,7 @@ import type { Entry, EquipmentType, Participant, Session, WorkSet } from "../typ
 import { Caret, UnitToggle, num } from "./common";
 import { BandPicker, PRCalc, PlatesHint } from "./widgets";
 
-const STRENGTH_EQUIPMENT: EquipmentType[] = ["weight", "barbell", "dumbbell", "band", "bodyweight"];
+const STRENGTH_EQUIPMENT: EquipmentType[] = ["weight", "barbell", "plates", "dumbbell", "band", "bodyweight"];
 
 /** The band(s) this person last used for this exercise, so a new entry starts there. */
 function lastBandIds(sessions: Session[], personId: number, exerciseId: number): number[] | null {
@@ -155,7 +155,8 @@ export function EntryCard({ participant, entry, isActive }: {
   const showNotesEditor = isActive || editingNotes;
   const weightLabel = eq === "dumbbell" ? "Weight/DB (kg)" : eq === "bodyweight" ? "Added (kg)" : "Weight (kg)";
   const weightTip = eq === "dumbbell" ? "Weight of one dumbbell — volume counts both when ×2"
-    : eq === "bodyweight" ? "Added weight only (belt/vest) — leave 0 for pure bodyweight" : WEIGHT_TOOLTIP;
+    : eq === "bodyweight" ? "Added weight only (belt/vest) — leave 0 for pure bodyweight"
+    : eq === "plates" ? "Total weight of the plates (no bar)" : WEIGHT_TOOLTIP;
   const onEnter = (fn: () => void) => (e: React.KeyboardEvent) => { if (e.key === "Enter") fn(); };
 
   return (
@@ -265,6 +266,7 @@ export function EntryCard({ participant, entry, isActive }: {
                 <button className="add-set-btn" onClick={addSet}>Add set</button>
               </div>
               {eq === "barbell" && <div className="plates-hint-root"><PlatesHint weight={num(weight)} barKg={bar.kg} /></div>}
+              {eq === "plates" && <div className="plates-hint-root"><PlatesHint weight={num(weight)} barKg={null} /></div>}
             </>
           )}
         </>

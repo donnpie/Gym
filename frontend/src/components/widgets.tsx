@@ -24,8 +24,8 @@ export function PRCalc({ weight }: { weight: number }) {
   );
 }
 
-/** Plates per side for a barbell weight. */
-export function PlatesHint({ weight, barKg }: { weight: number | null; barKg: number }) {
+/** Plates per side for a barbell weight, or with barKg null, the plates that make up the weight. */
+export function PlatesHint({ weight, barKg }: { weight: number | null; barKg: number | null }) {
   const { inventory } = useStore();
   if (weight == null || !(weight > 0)) {
     return <div className="plates-hint warning">Enter a weight to see plate breakdown</div>;
@@ -38,14 +38,14 @@ export function PlatesHint({ weight, barKg }: { weight: number | null; barKg: nu
   r.plates.forEach(kg => grouped.set(kg, (grouped.get(kg) || 0) + 1));
   return (
     <div className="plates-hint">
-      <span className="plates-label">Per side</span>
+      <span className="plates-label">{barKg == null ? "Plates" : "Per side"}</span>
       <span className="plates-badges">
         {[...grouped.entries()].map(([kg, ct]) => (
           <span key={kg} className="plate-badge">{kg}{ct > 1 && <span className="plate-ct">×{ct}</span>}</span>
         ))}
       </span>
       {r.type === "partial" && (
-        <span className="plates-leftover">closest: {r.achieved} kg (short {r.leftover} kg/side)</span>
+        <span className="plates-leftover">closest: {r.achieved} kg (short {r.leftover} kg{barKg == null ? "" : "/side"})</span>
       )}
     </div>
   );

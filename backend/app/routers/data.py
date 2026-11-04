@@ -47,7 +47,7 @@ def export_all(db: Db = Depends(get_db)) -> dict[str, Any]:
                     eq = {"type": "barbell", **({"barId": str(e.bar_id)} if e.bar_id else {})}
                 elif e.equipment_type == "dumbbell":
                     eq = {"type": "dumbbell", "dumbbellCount": e.dumbbell_count}
-                elif e.equipment_type in ("band", "bodyweight"):
+                elif e.equipment_type in ("plates", "band", "bodyweight"):
                     eq = {"type": e.equipment_type}
                 sets = []
                 for i, w in enumerate(e.sets):

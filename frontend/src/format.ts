@@ -6,7 +6,7 @@ export const KM_PER_MILE = 1.609344;
 export type DistanceUnit = "km" | "mi";
 
 export const EQUIPMENT_LABELS: Record<EquipmentType, string> = {
-  weight: "Weight", barbell: "Barbell", dumbbell: "Dumbbell", band: "Band", bodyweight: "Bodyweight", cardio: "Cardio",
+  weight: "Weight", barbell: "Barbell", plates: "Plates", dumbbell: "Dumbbell", band: "Band", bodyweight: "Bodyweight", cardio: "Cardio",
 };
 
 export function todayISO(): string {
@@ -120,12 +120,24 @@ export type PlateResult =
   | { type: "below_bar"; bar: number }
   | { type: "exact" | "partial"; plates: number[]; achieved: number; leftover: number; bar: number };
 
-export function calcPlates(targetKg: number, barKg: number, inv: Inventory): PlateResult | null {
+/** Individual plates available, heaviest first; duplicates merged. */
+function plateCounts(inv: Inventory) {
+  const merged = new Map<number, number>();
+  inv.plates.forEach(p => {
+    if (p.kg > 0 && p.count) merged.set(p.kg, (merged.get(p.kg) || 0) + p.count);
+  });
+  return [...merged.entries()].map(([kg, pairs]) => ({ kg, pairs })).sort((a, b) => b.kg - a.kg);
+}
+
+/** Plates per side for a barbell, or with barKg null, the plates making up the whole weight (no bar). */
+export function calcPlates(targetKg: number, barKg: number | null, inv: Inventory): PlateResult | null {
   if (!targetKg || isNaN(targetKg) || targetKg <= 0) return null;
-  if (targetKg < barKg - EPS) return { type: "below_bar", bar: barKg };
-  let remaining = (targetKg - barKg) / 2;
+  const bar = barKg ?? 0;
+  const sides = barKg == null ? 1 : 2;
+  if (targetKg < bar - EPS) return { type: "below_bar", bar };
+  let remaining = (targetKg - bar) / sides;
   const plates: number[] = [];
-  for (const { kg, pairs } of platePairs(inv)) {
+  for (const { kg, pairs } of barKg == null ? plateCounts(inv) : platePairs(inv)) {
     let used = 0;
     while (remaining >= kg - EPS && used < pairs) {
       plates.push(kg);
@@ -137,9 +149,9 @@ export function calcPlates(targetKg: number, barKg: number, inv: Inventory): Pla
   return {
     type: leftover > 0 ? "partial" : "exact",
     plates,
-    achieved: barKg + 2 * plates.reduce((a, b) => a + b, 0),
+    achieved: bar + sides * plates.reduce((a, b) => a + b, 0),
     leftover,
-    bar: barKg,
+    bar,
   };
 }
 

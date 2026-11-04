@@ -14,7 +14,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .db import Base
 
 # Equipment an exercise entry can use. "cardio" is for cardio exercises only.
-EQUIPMENT_TYPES = ("weight", "barbell", "dumbbell", "band", "bodyweight", "cardio")
+EQUIPMENT_TYPES = ("weight", "barbell", "plates", "dumbbell", "band", "bodyweight", "cardio")
 
 
 class Person(Base):
