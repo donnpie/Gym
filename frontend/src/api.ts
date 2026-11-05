@@ -66,6 +66,7 @@ export const api = {
   addSet: (entryId: number, body: SetInput) => post<Session>(`/entries/${entryId}/sets`, body),
   replaceSet: (id: number, body: SetInput) => put<Session>(`/sets/${id}`, body),
   deleteSet: (id: number) => del<Session>(`/sets/${id}`),
+  moveSet: (id: number, direction: "up" | "down") => post<Session>(`/sets/${id}/move`, { direction }),
 
   prs: () => get<PR[]>("/stats/prs"),
   bestTable: (personId: number, exerciseId: number) =>

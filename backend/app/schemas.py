@@ -125,6 +125,10 @@ class EntryPatch(BaseModel):
     notes: str | None = None
 
 
+class SetMoveIn(BaseModel):
+    direction: Literal["up", "down"]
+
+
 class SetIn(BaseModel):
     reps: int | None = Field(default=None, ge=1)
     weight_kg: float | None = Field(default=None, ge=0)

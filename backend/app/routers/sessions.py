@@ -210,6 +210,20 @@ def replace_set(set_id: int, body: s.SetIn, db: Db = Depends(get_db)):
     return _done(db, ws.entry.participant.session_id)
 
 
+@router.post("/sets/{set_id}/move", response_model=s.SessionOut)
+def move_set(set_id: int, body: s.SetMoveIn, db: Db = Depends(get_db)):
+    """Swap a set with its neighbour; at either end it stays put."""
+    ws = get_or_404(db, m.WorkSet, set_id)
+    sets = list(ws.entry.sets)
+    i = sets.index(ws)
+    j = i - 1 if body.direction == "up" else i + 1
+    if 0 <= j < len(sets):
+        sets[i], sets[j] = sets[j], sets[i]
+    for pos, item in enumerate(sets, start=1):
+        item.position = pos
+    return _done(db, ws.entry.participant.session_id)
+
+
 @router.delete("/sets/{set_id}", response_model=s.SessionOut)
 def delete_set(set_id: int, db: Db = Depends(get_db)):
     ws = get_or_404(db, m.WorkSet, set_id)

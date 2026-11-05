@@ -103,6 +103,23 @@ def test_sets_prs_and_equipment_memory(client):
     assert e2["equipment_type"] == "barbell" and e2["exercise_id"] == entry["exercise_id"]
 
 
+def test_move_sets(client):
+    sess = start(client, "Donn")
+    sess = add_entry(client, sess["participants"][0]["id"], "Squat")
+    entry = find_entry(sess, "Squat")
+    for reps in (6, 12, 7):
+        sess = client.post(f"/api/entries/{entry['id']}/sets", json={"reps": reps, "weight_kg": 100}).json()
+    last = find_entry(sess, "Squat")["sets"][-1]["id"]
+    sess = client.post(f"/api/sets/{last}/move", json={"direction": "up"}).json()
+    assert [st["reps"] for st in find_entry(sess, "Squat")["sets"]] == [6, 7, 12]
+    sess = client.post(f"/api/sets/{last}/move", json={"direction": "up"}).json()
+    sess = client.post(f"/api/sets/{last}/move", json={"direction": "up"}).json()  # already first: no change
+    assert [st["reps"] for st in find_entry(sess, "Squat")["sets"]] == [7, 6, 12]
+    sess = client.post(f"/api/sets/{last}/move", json={"direction": "down"}).json()
+    assert [st["reps"] for st in find_entry(sess, "Squat")["sets"]] == [6, 7, 12]
+    assert client.post(f"/api/sets/{last}/move", json={"direction": "left"}).status_code == 422
+
+
 def test_band_sets_take_one_or_two_bands(client):
     bands = client.get("/api/inventory").json()["bands"]
     sess = start(client, "Donn")

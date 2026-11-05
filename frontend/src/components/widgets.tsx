@@ -2,22 +2,36 @@ import type { KeyboardEvent } from "react";
 import { bandLabel, calcPlates, smallestIncrement } from "../format";
 import { useStore } from "../store";
 
-/** Working weights at 50–100% of a weight, rounded to what the plates can load. */
-export function PRCalc({ weight }: { weight: number }) {
+/** Reps you should manage at a weight, given a 1-rep max: Epley (1RM = w × (1 + reps/30)) solved for reps. */
+export function epleyReps(oneRm: number, weight: number): number {
+  return Math.max(1, Math.floor(30 * (oneRm / weight - 1) + 1e-9));
+}
+
+/** Working weights at 50–100% of a weight, rounded to what the plates can load.
+ *  With showReps, also the reps each should allow, treating the weight as a 1-rep max. */
+export function PRCalc({ weight, showReps = false }: { weight: number; showReps?: boolean }) {
   const { inventory } = useStore();
   const step = smallestIncrement(inventory);
   const pcts = [50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100];
-  const round = (w: number) => (Math.round((Math.round(w / step) * step) * 100) / 100).toString();
+  const round = (w: number) => Math.round((Math.round(w / step) * step) * 100) / 100;
   const half = Math.ceil(pcts.length / 2);
   const left = pcts.slice(0, half);
   const right = pcts.slice(half);
-  const cell = (p: number | undefined, k: string) => p != null
-    ? [<span key={`${k}p`} className="pct">{p}%</span>, <span key={`${k}w`} className="wt">{round(weight * p / 100)} kg</span>]
-    : [<span key={`${k}p`} />, <span key={`${k}w`} />];
+  const cell = (p: number | undefined, k: string) => {
+    if (p == null) return [<span key={`${k}p`} />, <span key={`${k}w`} />, ...(showReps ? [<span key={`${k}r`} />] : [])];
+    const w = round(weight * p / 100);
+    return [
+      <span key={`${k}p`} className="pct">{p}%</span>,
+      <span key={`${k}w`} className="wt">{w} kg</span>,
+      ...(showReps ? [<span key={`${k}r`} className="reps">×{w > 0 ? epleyReps(weight, w) : "–"}</span>] : []),
+    ];
+  };
   return (
     <div className="pr-calc">
-      <div className="pr-calc-header">PR {weight} kg · {step} kg increments</div>
-      <div className="pr-calc-grid">
+      <div className="pr-calc-header">
+        PR {weight} kg · {step} kg increments{showReps && <> · reps by Epley, taking {weight} kg as your 1-rep max</>}
+      </div>
+      <div className={`pr-calc-grid${showReps ? " with-reps" : ""}`}>
         {left.map((p, i) => [...cell(p, `l${i}`), ...cell(right[i], `r${i}`)])}
       </div>
     </div>

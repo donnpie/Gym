@@ -34,10 +34,12 @@ export default function App() {
       {home && <StartSession />}
       <div className="session-layout">
         <div id="current-session">{shown && <SessionView key={shown.id} session={shown} isActive={!viewing} />}</div>
-        <div id="best-lookup"><BestLookup /></div>
+        <div id="best-lookup">
+          <BestLookup />
+          <PRHelper />
+        </div>
       </div>
       {home && <TargetsOverview />}
-      <PRHelper />
       {home && (
         <>
           <InventoryEditor />

@@ -30,7 +30,8 @@ over. If you ever need it, it's in the git history up to commit `79c0144`.
 
 ## What it does
 
-- **Sessions:** log one or more people side by side, with exercises, sets (reps, weight, RIR) and notes. Only one
+- **Sessions:** log one or more people side by side, with exercises, sets (reps, weight, RIR) and notes. Sets
+  can be edited and moved up or down. Only one
   session is active at a time. Past sessions can be opened, edited, resumed or deleted, and people can be added to
   or removed from a session.
 - **Equipment per exercise:** weight, barbell (with the plates per side to load), plates with no bar (e.g. a
@@ -39,7 +40,8 @@ over. If you ever need it, it's in the git history up to commit `79c0144`.
 - **Cardio:** duration and distance with average speed and pace, in km or miles. Run and Walk are built in; add
   more activities (e.g. Cycle, Swim) in the Exercises section.
 - **Records:** PRs, best lift lookup (best weight at 1–16 reps, estimated 1RM using Epley on the best sets at
-  2–6 reps), targets with progress, and a PR helper for working weights at 50–100%.
+  2–6 reps), targets with progress, and a PR helper for working weights at 50–100%, with the reps each should allow (Epley, taking the weight
+  as a 1-rep max).
 - **Plates & bars:** bars, plates, dumbbells, kettlebells, accessories and resistance bands you own.
 - **Exercises and People:** lists with history, rename (applies everywhere) and merge (folds duplicates together).
   A person can appear only once per session.

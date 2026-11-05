@@ -186,8 +186,9 @@ export function EntryCard({ participant, entry, isActive }: {
             {entry.sets.length === 0
               ? <div className="empty small">{cardio ? "Nothing logged" : "No sets"}{isActive || cardio ? " yet" : ""}.</div>
               : entry.sets.map((s, i) => cardio
-                ? <CardioRow key={s.id} set={s} index={i} editing={editingSetId === s.id} onEdit={setEditingSetId} />
-                : <SetRow key={s.id} set={s} index={i} band={band} editing={editingSetId === s.id} onEdit={setEditingSetId} />)}
+                ? <CardioRow key={s.id} set={s} index={i} count={entry.sets.length} editing={editingSetId === s.id} onEdit={setEditingSetId} />
+                : <SetRow key={s.id} set={s} index={i} count={entry.sets.length} band={band} editing={editingSetId === s.id}
+                  onEdit={setEditingSetId} />)}
           </div>
           {total}
           {showNotesEditor ? (
@@ -307,8 +308,22 @@ function RenameExercise({ entry, onDone }: { entry: Entry; onDone: () => void })
   );
 }
 
-function SetRow({ set, index, band, editing, onEdit }: {
-  set: WorkSet; index: number; band: boolean; editing: boolean; onEdit: (id: number | null) => void;
+/** ▲ ▼ buttons to move a set within its exercise; hidden at the ends. */
+function MoveButtons({ set, index, count }: { set: WorkSet; index: number; count: number }) {
+  const { run } = useStore();
+  if (count < 2) return null;
+  return (
+    <span className="set-move">
+      <button className="set-move-btn" title="Move up" disabled={index === 0}
+        onClick={() => run(() => api.moveSet(set.id, "up"))}>▲</button>
+      <button className="set-move-btn" title="Move down" disabled={index === count - 1}
+        onClick={() => run(() => api.moveSet(set.id, "down"))}>▼</button>
+    </span>
+  );
+}
+
+function SetRow({ set, index, count, band, editing, onEdit }: {
+  set: WorkSet; index: number; count: number; band: boolean; editing: boolean; onEdit: (id: number | null) => void;
 }) {
   const { run, inventory } = useStore();
   const [reps, setReps] = useState(String(set.reps ?? ""));
@@ -364,13 +379,14 @@ function SetRow({ set, index, band, editing, onEdit }: {
         {set.reps} × {band || set.band_ids.length ? setBandLabel(set.band_ids, inventory) : `${set.weight_kg} kg`}
         {set.rir != null && <> <span className="rir-tag">RIR {set.rir}</span></>}
       </button>
+      <MoveButtons set={set} index={index} count={count} />
       <button className="danger small" title="Remove set" onClick={() => run(() => api.deleteSet(set.id))}>×</button>
     </div>
   );
 }
 
-function CardioRow({ set, index, editing, onEdit }: {
-  set: WorkSet; index: number; editing: boolean; onEdit: (id: number | null) => void;
+function CardioRow({ set, index, count, editing, onEdit }: {
+  set: WorkSet; index: number; count: number; editing: boolean; onEdit: (id: number | null) => void;
 }) {
   const { run, distanceUnit } = useStore();
   const [duration, setDuration] = useState("");
@@ -420,6 +436,7 @@ function CardioRow({ set, index, editing, onEdit }: {
         {fmtDist(km, distanceUnit)} in {formatDuration(sec)}{" "}
         <span className="rir-tag">{speedText(km, sec, distanceUnit)}</span>
       </button>
+      <MoveButtons set={set} index={index} count={count} />
       <button className="danger small" title="Remove" onClick={() => run(() => api.deleteSet(set.id))}>×</button>
     </div>
   );

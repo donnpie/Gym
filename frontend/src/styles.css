@@ -333,6 +333,23 @@ button.icon {
   background: rgba(79, 140, 255, 0.08);
   color: var(--accent);
 }
+.set-move { display: flex; gap: 2px; flex-shrink: 0; }
+.set-move-btn {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 2px 5px;
+  font-size: 10px;
+  line-height: 1;
+  cursor: pointer;
+}
+.set-move-btn:hover:not(:disabled) {
+  color: var(--accent);
+  border-color: var(--border);
+  background: rgba(79, 140, 255, 0.08);
+}
+.set-move-btn:disabled { visibility: hidden; }
 .rir-tag {
   color: var(--muted);
   font-size: 12px;
@@ -450,11 +467,33 @@ button.icon {
   padding-left: 12px;
   margin-left: -2px;
 }
+.pr-calc-grid > .reps {
+  color: var(--muted);
+  font-size: 12px;
+  text-align: right;
+}
+.pr-calc-grid.with-reps {
+  grid-template-columns: auto 1fr auto auto 1fr auto;
+}
+.pr-calc-grid.with-reps > :nth-child(4n+3) {
+  border-left: none;
+  padding-left: 0;
+  margin-left: 0;
+}
+.pr-calc-grid.with-reps > :nth-child(6n+4) {
+  border-left: 1px solid var(--border);
+  padding-left: 12px;
+  margin-left: -2px;
+}
 @media (max-width: 380px) {
   .pr-calc-grid {
     grid-template-columns: auto 1fr;
   }
-  .pr-calc-grid > :nth-child(4n+3) {
+  .pr-calc-grid.with-reps {
+    grid-template-columns: auto 1fr auto;
+  }
+  .pr-calc-grid > :nth-child(4n+3),
+  .pr-calc-grid.with-reps > :nth-child(6n+4) {
     border-left: none;
     padding-left: 0;
     margin-left: 0;

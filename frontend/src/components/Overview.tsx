@@ -60,6 +60,7 @@ export function PRHelper() {
         <input type="number" id="helper-weight" min="0" step="0.5" value={weight} placeholder="Enter a weight (kg)"
           onChange={e => setWeight(e.target.value)} />
       </div>
+      <div className="helper-calc-root">{w > 0 && <PRCalc weight={w} showReps />}</div>
       {prs.length > 0 && (
         <div className="quick-picks">
           <div className="quick-picks-label">Or pick a known PR</div>
@@ -73,7 +74,6 @@ export function PRHelper() {
           </div>
         </div>
       )}
-      <div className="helper-calc-root">{w > 0 && <PRCalc weight={w} />}</div>
     </Section>
   );
 }
