@@ -2,37 +2,52 @@ import type { KeyboardEvent } from "react";
 import { bandLabel, calcPlates, smallestIncrement } from "../format";
 import { useStore } from "../store";
 
-/** Reps you should manage at a weight, given a 1-rep max: Epley (1RM = w × (1 + reps/30)) solved for reps. */
+/** Reps you should manage at a weight, given a 1-rep max: Epley (1RM = w × (1 + reps/30)) solved for reps.
+ *  At the 1RM itself the formula gives 0, so it never goes below 1. */
 export function epleyReps(oneRm: number, weight: number): number {
-  return Math.max(1, Math.floor(30 * (oneRm / weight - 1) + 1e-9));
+  return Math.max(1, 30 * (oneRm / weight - 1));
 }
 
+type CalcRow = { pct: number; kg: number; reps: number; exact: boolean };
+
 /** Working weights at 50–100% of a weight, rounded to what the plates can load.
- *  With showReps, also the reps each should allow, treating the weight as a 1-rep max. */
+ *  With showReps, also the reps each should allow, treating the weight as a 1-rep max, plus the exact
+ *  weights (unrounded) for whole numbers of reps from 2 to 16, slotted in between. */
 export function PRCalc({ weight, showReps = false }: { weight: number; showReps?: boolean }) {
   const { inventory } = useStore();
   const step = smallestIncrement(inventory);
-  const pcts = [50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100];
   const round = (w: number) => Math.round((Math.round(w / step) * step) * 100) / 100;
-  const half = Math.ceil(pcts.length / 2);
-  const left = pcts.slice(0, half);
-  const right = pcts.slice(half);
-  const cell = (p: number | undefined, k: string) => {
-    if (p == null) return [<span key={`${k}p`} />, <span key={`${k}w`} />, ...(showReps ? [<span key={`${k}r`} />] : [])];
-    const w = round(weight * p / 100);
+  const rows: CalcRow[] = [50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100].map(pct => {
+    const kg = round(weight * pct / 100);
+    return { pct, kg, reps: kg > 0 ? epleyReps(weight, kg) : 0, exact: false };
+  });
+  if (showReps) {
+    for (let reps = 2; reps <= 16; reps++) {
+      const pct = 100 * 30 / (30 + reps);
+      rows.push({ pct, kg: Math.round(weight * pct) / 100, reps, exact: true });
+    }
+    rows.sort((a, b) => a.pct - b.pct || Number(a.exact) - Number(b.exact));
+  }
+  const half = Math.ceil(rows.length / 2);
+  const left = rows.slice(0, half);
+  const right = rows.slice(half);
+  const cell = (r: CalcRow | undefined, k: string) => {
+    if (!r) return [<span key={`${k}p`} />, <span key={`${k}w`} />, ...(showReps ? [<span key={`${k}r`} />] : [])];
+    const cls = r.exact ? " exact" : "";
     return [
-      <span key={`${k}p`} className="pct">{p}%</span>,
-      <span key={`${k}w`} className="wt">{w} kg</span>,
-      ...(showReps ? [<span key={`${k}r`} className="reps">×{w > 0 ? epleyReps(weight, w) : "–"}</span>] : []),
+      <span key={`${k}p`} className={`pct${cls}`}>{r.exact ? r.pct.toFixed(1) : r.pct}%</span>,
+      <span key={`${k}w`} className={`wt${cls}`}>{r.exact ? r.kg.toFixed(1) : r.kg} kg</span>,
+      ...(showReps ? [<span key={`${k}r`} className={`reps${cls}`}>×{r.kg > 0 ? r.reps.toFixed(1) : "–"}</span>] : []),
     ];
   };
   return (
     <div className="pr-calc">
       <div className="pr-calc-header">
-        PR {weight} kg · {step} kg increments{showReps && <> · reps by Epley, taking {weight} kg as your 1-rep max</>}
+        PR {weight} kg · {step} kg increments
+        {showReps && <> · reps by Epley, taking {weight} kg as your 1-rep max · <span className="exact">exact weights for 2–16 reps</span></>}
       </div>
       <div className={`pr-calc-grid${showReps ? " with-reps" : ""}`}>
-        {left.map((p, i) => [...cell(p, `l${i}`), ...cell(right[i], `r${i}`)])}
+        {left.map((r, i) => [...cell(r, `l${i}`), ...cell(right[i], `r${i}`)])}
       </div>
     </div>
   );

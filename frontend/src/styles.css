@@ -472,6 +472,8 @@ button.icon {
   font-size: 12px;
   text-align: right;
 }
+.pr-calc .exact { color: var(--accent); }
+.pr-calc-grid > .wt.exact { font-weight: 400; }
 .pr-calc-grid.with-reps {
   grid-template-columns: auto 1fr auto auto 1fr auto;
 }
