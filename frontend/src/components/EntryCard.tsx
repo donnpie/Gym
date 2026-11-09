@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { api } from "../api";
 import {
-  EQUIPMENT_LABELS, RIR_TOOLTIP, WEIGHT_TOOLTIP, cardioSummary, cardioTotals, entryVolume, fmt, fmtDist,
+  EQUIPMENT_LABELS, RIR_TOOLTIP, WEIGHT_TOOLTIP, cardioSummary, cardioTotals, entryReps, entryVolume, fmt, fmtDist,
   formatDuration, kmToUnit, parseDuration, resolveBar, sameName, setBandLabel, speedText, unitToKm,
 } from "../format";
 import { useStore } from "../store";
@@ -150,7 +150,7 @@ export function EntryCard({ participant, entry, isActive }: {
       <div className="exercise-total" title="Total distance and time; average speed over the whole thing">
         Total: {cardioSummary(t.distanceKm, t.durationSec, distanceUnit)}
       </div>))(cardioTotals(entry)))
-    : entry.sets.length > 0 && <div className="exercise-total">Total: {fmt(entryVolume(entry))} kg</div>;
+    : entry.sets.length > 0 && <div className="exercise-total">Total: {fmt(entryVolume(entry))} kg · {entryReps(entry)} reps</div>;
 
   const showNotesEditor = isActive || editingNotes;
   const weightLabel = eq === "dumbbell" ? "Weight/DB (kg)" : eq === "bodyweight" ? "Added (kg)" : "Weight (kg)";

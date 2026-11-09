@@ -26,6 +26,10 @@ export const sameName = (a: string, b: string) => a.trim().toLowerCase() === b.t
 
 // ---------- Volume ----------
 
+export function entryReps(e: Entry): number {
+  return e.sets.reduce((n, s) => n + (s.reps || 0), 0);
+}
+
 export function entryVolume(e: Entry): number {
   const mult = e.equipment_type === "dumbbell" ? e.dumbbell_count || 2 : 1;
   return e.sets.reduce((sum, s) => sum + (s.reps || 0) * (s.weight_kg || 0) * mult, 0);

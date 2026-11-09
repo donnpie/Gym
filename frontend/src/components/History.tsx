@@ -1,7 +1,7 @@
 import { useRef } from "react";
 import { api } from "../api";
 import {
-  cardioSummary, cardioTotals, downloadFile, entryVolume, fmt, formatDate, participantVolume, sameName,
+  cardioSummary, cardioTotals, downloadFile, entryReps, entryVolume, fmt, formatDate, participantVolume, sameName,
 } from "../format";
 import { useStore } from "../store";
 import type { Participant } from "../types";
@@ -184,7 +184,8 @@ function HistoryParticipant({ participant: p, distanceUnit, prFor }: {
               <span className="muted-tag">
                 {e.kind === "cardio"
                   ? (t => cardioSummary(t.distanceKm, t.durationSec, distanceUnit))(cardioTotals(e))
-                  : volume > 0 ? `${fmt(volume)} kg` : `${e.sets.length} set${e.sets.length === 1 ? "" : "s"}`}
+                  : volume > 0 ? `${fmt(volume)} kg · ${entryReps(e)} reps`
+                    : `${e.sets.length} set${e.sets.length === 1 ? "" : "s"} · ${entryReps(e)} reps`}
               </span>
             </div>
           );
