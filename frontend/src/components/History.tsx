@@ -95,10 +95,7 @@ export function History() {
       .filter(p => !f.exercise || p.entries.length > 0),
   })).filter(x => x.participants.length > 0);
 
-  const open = (id: number) => {
-    setViewingId(id);
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  };
+  const open = (id: number) => setViewingId(id);
 
   return (
     <section id="history-section">

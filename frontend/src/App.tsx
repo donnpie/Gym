@@ -9,7 +9,9 @@ import { StartSession } from "./components/StartSession";
 import { useStore } from "./store";
 
 export default function App() {
-  const { loaded, error, active, viewing } = useStore();
+  const { loaded, error, active, viewing: opened } = useStore();
+  // A past session opens below the active one, so the active session stays in view.
+  const viewing = opened && opened.id !== active?.id ? opened : null;
   const shown = viewing || active;
   const home = !shown;
 
@@ -26,14 +28,22 @@ export default function App() {
     );
   }
 
-  const classes = ["container", shown && shown.participants.length > 1 && "wide", shown && "has-session"];
+  const wide = [active, viewing].some(s => s && s.participants.length > 1);
+  const classes = ["container", wide && "wide", shown && "has-session"];
   return (
     <div className={classes.filter(Boolean).join(" ")}>
       <Datalists />
       <h1>Gym Tracker</h1>
       {home && <StartSession />}
       <div className="session-layout">
-        <div id="current-session">{shown && <SessionView key={shown.id} session={shown} isActive={!viewing} />}</div>
+        <div className="main-column">
+          <div id="current-session">
+            {active && <SessionView key={active.id} session={active} isActive />}
+            {viewing && <SessionView key={viewing.id} session={viewing} isActive={false} />}
+          </div>
+          {/* With a session open, History sits right under it rather than below the sidebar. */}
+          {shown && <History />}
+        </div>
         <div id="best-lookup">
           <BestLookup />
           <PRHelper />
@@ -48,7 +58,7 @@ export default function App() {
           <DataTools />
         </>
       )}
-      {!viewing && <History />}
+      {!shown && <History />}
     </div>
   );
 }

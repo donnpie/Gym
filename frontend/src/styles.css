@@ -24,6 +24,7 @@ body {
   transition: max-width 0.2s ease;
 }
 .container.wide { max-width: 1180px; }
+.card.past-session { border-style: dashed; scroll-margin-top: 12px; }
 
 /* Session + best-lookup side by side while a session is open, on wide screens. */
 @media (min-width: 1000px) {
@@ -41,6 +42,12 @@ body {
     max-height: calc(100vh - 24px);
     overflow-y: auto;
   }
+}
+/* On narrow screens everything stacks; keep History after Best lift lookup and the PR helper. */
+@media (max-width: 999.98px) {
+  .container.has-session .session-layout { display: flex; flex-direction: column; }
+  .container.has-session .main-column { display: contents; }
+  .container.has-session #history-section { order: 1; }
 }
 
 h1 {

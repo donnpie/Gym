@@ -8,7 +8,14 @@ import { EntryCard } from "./EntryCard";
 
 export function SessionView({ session, isActive }: { session: Session; isActive: boolean }) {
   const { run, active, isCollapsed, toggleCollapsed, setViewingId } = useStore();
-  const collapsed = isCollapsed("session");
+  const collapseKey = isActive ? "session" : "past-session";
+  const collapsed = isCollapsed(collapseKey);
+  const cardRef = useRef<HTMLDivElement>(null);
+
+  // A past session opens below the active one: bring it into view.
+  useEffect(() => {
+    if (!isActive) cardRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [isActive]);
   const [editingDate, setEditingDate] = useState(false);
   const [newPerson, setNewPerson] = useState("");
 
@@ -32,10 +39,11 @@ export function SessionView({ session, isActive }: { session: Session; isActive:
   };
 
   return (
-    <div className={`card collapsible${collapsed ? " collapsed" : ""}`}>
+    <div ref={cardRef} id={isActive ? "active-session" : "viewed-session"}
+      className={`card collapsible${collapsed ? " collapsed" : ""}${isActive ? "" : " past-session"}`}>
       <div className="session-header collapsible-head">
         <div className="session-date">
-          <Caret collapsed={collapsed} onClick={() => toggleCollapsed("session")} />
+          <Caret collapsed={collapsed} onClick={() => toggleCollapsed(collapseKey)} />
           {editingDate ? (
             <input
               type="date"
@@ -54,7 +62,7 @@ export function SessionView({ session, isActive }: { session: Session; isActive:
               {formatDate(session.date)}
             </button>
           )}
-          {isActive && <> <span style={{ color: "var(--muted)", fontWeight: 400 }}>(active)</span></>}
+          <> <span style={{ color: "var(--muted)", fontWeight: 400 }}>{isActive ? "(active)" : "(past session)"}</span></>
         </div>
         {isActive ? (
           <button className="icon" id="finish-session" onClick={() => run(() => api.updateSession(session.id, { status: "finished" }))}>
@@ -62,7 +70,7 @@ export function SessionView({ session, isActive }: { session: Session; isActive:
           </button>
         ) : (
           <div style={{ display: "flex", gap: 6 }}>
-            <button className="icon" id="back-btn" onClick={() => setViewingId(null)}>‹ Back</button>
+            <button className="icon" id="back-btn" title="Close this past session" onClick={() => setViewingId(null)}>Close</button>
             <button className="icon" id="resume-session" title="Make this the active session so you can keep logging sets" onClick={resume}>
               Resume
             </button>
